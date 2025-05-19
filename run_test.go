@@ -79,10 +79,11 @@ type incomeMessage struct {
 }
 
 type TestInformer struct {
-	ch chan incomeMessage
+	ch      chan incomeMessage
+	shardID string
 }
 
-func (i *TestInformer) Listen(shardID string, f func(ctx context.Context, kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func())) {
+func (i *TestInformer) Listen(f func(ctx context.Context, kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func())) {
 	ctx := context.Background()
 	for message := range i.ch {
 
@@ -167,7 +168,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		t.Error(err)
 	}
 
-	informer := &TestInformer{ch: make(chan incomeMessage, 100)}
+	informer := &TestInformer{ch: make(chan incomeMessage, 100), shardID: "test"}
 	for i := 1; i < 5; i++ {
 		im := incomeMessage{
 			kind:        resource.GroupKind{Group: "test", Kind: "test"},

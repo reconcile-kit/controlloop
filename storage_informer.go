@@ -42,7 +42,7 @@ func (s *StorageInformer) Run(ctx context.Context) error {
 				fmt.Println("receiveMessages Recovered from panic ", err)
 			}
 		}()
-		s.listener.Listen(s.shardID, s.receiveMessages)
+		s.listener.Listen(s.receiveMessages)
 	}()
 	return nil
 }
