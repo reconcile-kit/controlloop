@@ -1,7 +1,7 @@
 package controlloop
 
 import (
-	resource "github.com/reconcile-kit/api"
+	"github.com/reconcile-kit/api/resource"
 	"k8s.io/client-go/util/workqueue"
 	"sync"
 	"time"

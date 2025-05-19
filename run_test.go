@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	resource "github.com/reconcile-kit/api"
+	"github.com/reconcile-kit/api/resource"
 	"sync"
 	"sync/atomic"
 	"testing"

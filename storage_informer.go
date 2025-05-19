@@ -2,7 +2,7 @@ package controlloop
 
 import (
 	"fmt"
-	resource "github.com/reconcile-kit/api"
+	"github.com/reconcile-kit/api/resource"
 )
 
 type StorageInformer struct {
