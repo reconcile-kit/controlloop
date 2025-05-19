@@ -19,23 +19,22 @@ type ControlLoop[T resource.Object[T]] struct {
 	exitChannel chan struct{}
 	l           Logger
 	concurrency int
-	Storage     Storage[T]
-	storages    *StorageSet
+	Storage     *MemoryStorage[T]
 	Queue       *Queue[T]
 }
 
-func New[T resource.Object[T]](r Reconcile[T], storage *MemoryStorage[T], options ...ClOption) *ControlLoop[T] {
+func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
 	currentOptions := &opts{}
 	for _, o := range options {
 		o(currentOptions)
 	}
-
+	memoryStorage := storage.GetMemoryStorage()
 	controlLoop := &ControlLoop[T]{
 		r:           r,
 		stopChannel: make(chan struct{}),
 		exitChannel: make(chan struct{}),
-		Storage:     storage,
-		Queue:       storage.Queue,
+		Storage:     memoryStorage,
+		Queue:       memoryStorage.Queue,
 	}
 
 	if currentOptions.logger != nil {
@@ -48,10 +47,6 @@ func New[T resource.Object[T]](r Reconcile[T], storage *MemoryStorage[T], option
 		controlLoop.concurrency = currentOptions.concurrency
 	} else {
 		controlLoop.concurrency = 1
-	}
-
-	if currentOptions.storages != nil {
-		controlLoop.storages = currentOptions.storages
 	}
 
 	return controlLoop
@@ -102,9 +97,9 @@ func (cl *ControlLoop[T]) Run() {
 			}
 
 			result, err := cl.reconcile(ctx, r, object)
+
 			switch {
 			case err != nil:
-				cl.l.Error(err)
 				cl.Queue.addRateLimited(object)
 			case result.RequeueAfter > 0:
 				cl.Queue.addAfter(object, result.RequeueAfter)
@@ -112,9 +107,9 @@ func (cl *ControlLoop[T]) Run() {
 				cl.Queue.add(object)
 			default:
 				if object.GetDeletionTimestamp() != "" {
-					cl.Storage.Delete(object)
+					cl.Storage.Delete(object.GetName())
 				} else {
-					cl.Queue.finalize(object)
+					cl.Queue.finalize(object.GetName())
 				}
 			}
 

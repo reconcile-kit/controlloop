@@ -39,10 +39,10 @@ func (q *Queue[T]) add(item resource.Object[T]) {
 	q.queue.Add(item.GetName())
 }
 
-func (q *Queue[T]) finalize(item resource.Object[T]) {
+func (q *Queue[T]) finalize(objectKey resource.ObjectKey) {
 	q.m.Lock()
 	defer q.m.Unlock()
-	delete(q.existedItems, item.GetName())
+	delete(q.existedItems, objectKey)
 }
 
 func (q *Queue[T]) done(item resource.Object[T]) {

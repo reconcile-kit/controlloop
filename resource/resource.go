@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"errors"
 	"sync/atomic"
 	"time"
 )
@@ -24,9 +25,25 @@ type Object[T any] interface {
 
 const TimeFormat = "2006-01-02 15:04:05"
 
+var ConflictError = errors.New("versions conflict")
+var NotFoundError = errors.New("resource not found")
+
+type GroupKind struct {
+	Group string
+	Kind  string
+}
+
 type ObjectKey struct {
 	Namespace string
 	Name      string
+}
+
+type ListOpts struct {
+	Group     string `json:"resource_group"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	ShardID   string `json:"shard_id"`
 }
 
 type Resource struct {

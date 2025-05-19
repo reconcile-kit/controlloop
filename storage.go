@@ -1,50 +1,11 @@
 package controlloop
 
 import (
-	"github.com/reconcile-kit/controlloop/assertions"
 	"github.com/reconcile-kit/controlloop/resource"
 	"k8s.io/client-go/util/workqueue"
-	"reflect"
 	"sync"
 	"time"
 )
-
-type StorageSet struct {
-	mu    sync.RWMutex
-	store map[reflect.Type]interface{}
-}
-
-func NewStorageSet() *StorageSet {
-	return &StorageSet{
-		store: make(map[reflect.Type]interface{}),
-	}
-}
-
-func GetStorage[T resource.Object[T]](storages *StorageSet) (T, bool) {
-	storages.mu.RLock()
-	defer storages.mu.RUnlock()
-	var zero T
-	raw, ok := storages.store[assertions.TypeOf[T]()]
-	if !ok {
-		return zero, false
-	}
-	return assertions.As[T](raw)
-}
-
-func SetStorage[T resource.Object[T]](storages *StorageSet, store Storage[T]) {
-	storages.mu.Lock()
-	defer storages.mu.Unlock()
-	storages.store[assertions.TypeOf[T]()] = store
-}
-
-type Storage[T resource.Object[T]] interface {
-	Add(item T)
-	Get(item T) T
-	List() map[resource.ObjectKey]T
-	Update(item T) error
-	Delete(item T)
-	getLast() (T, bool, error)
-}
 
 func NewMemoryStorage[T resource.Object[T]](opts ...StorageOption) *MemoryStorage[T] {
 	currentsOptions := &storageOpts{}
@@ -76,15 +37,21 @@ func (s *MemoryStorage[T]) Add(item T) {
 	s.Queue.add(item)
 }
 
-func (s *MemoryStorage[T]) Get(item T) T {
+func (s *MemoryStorage[T]) AddWithoutRequeue(item T) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.objects[item.GetName()] = item
+}
+
+func (s *MemoryStorage[T]) Get(key resource.ObjectKey) (T, bool) {
 	s.m.RLock()
 	defer s.m.RUnlock()
 	var zero T
-	val, exist := s.objects[item.GetName()]
+	val, exist := s.objects[key]
 	if !exist {
-		return zero
+		return zero, false
 	}
-	return val.DeepCopy()
+	return val.DeepCopy(), true
 }
 
 func (s *MemoryStorage[T]) List() map[resource.ObjectKey]T {
@@ -114,26 +81,86 @@ func (s *MemoryStorage[T]) Update(item T) error {
 	return nil
 }
 
-func (s *MemoryStorage[T]) Delete(item T) {
+func (s *MemoryStorage[T]) UpdateWithoutRequeue(item T) error {
 	s.m.Lock()
 	defer s.m.Unlock()
-	s.Queue.finalize(item)
-	delete(s.objects, item.GetName())
+	curr, exist := s.objects[item.GetName()]
+	if !exist {
+		return KeyNotExist
+	}
+	if curr.GetGeneration() > item.GetGeneration() {
+		return AlreadyUpdated
+	}
+	item.IncGeneration()
+	s.objects[item.GetName()] = item
+	return nil
+}
+
+func (s *MemoryStorage[T]) Delete(objectKey resource.ObjectKey) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.Queue.finalize(objectKey)
+	delete(s.objects, objectKey)
 }
 
 func (s *MemoryStorage[T]) getLast() (T, bool, error) {
-	s.m.Lock()
-	defer s.m.Unlock()
 	var zero T
 	name, shutdown := s.Queue.get()
 	if shutdown {
 		return zero, true, nil
 	}
-	// object already deleted
+	s.m.Lock()
 	if _, exist := s.objects[name]; !exist {
 		return zero, false, KeyNotExist
 	}
-	return s.objects[name].DeepCopy(), false, nil
+	objectCopy := s.objects[name].DeepCopy()
+	s.m.Unlock()
+	return objectCopy, false, nil
+}
+
+type MemoryStorageWrapped[T resource.Object[T]] struct {
+	memoryStorage *MemoryStorage[T]
+}
+
+func NewMemoryStorageWrapped[T resource.Object[T]](opts ...StorageOption) *MemoryStorageWrapped[T] {
+	return &MemoryStorageWrapped[T]{
+		memoryStorage: NewMemoryStorage[T](opts...),
+	}
+}
+
+func (m MemoryStorageWrapped[T]) Create(item T) error {
+	m.memoryStorage.Add(item)
+	return nil
+}
+
+func (m MemoryStorageWrapped[T]) Get(key resource.ObjectKey) (T, bool, error) {
+	item, ok := m.memoryStorage.Get(key)
+	if !ok {
+		return item, false, nil
+	}
+	return item, true, nil
+}
+
+func (m MemoryStorageWrapped[T]) List(listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
+	list := m.memoryStorage.List()
+	return list, nil
+}
+
+func (m MemoryStorageWrapped[T]) Update(item T) error {
+	return m.memoryStorage.Update(item)
+}
+
+func (m MemoryStorageWrapped[T]) UpdateStatus(item T) error {
+	return m.memoryStorage.UpdateWithoutRequeue(item)
+}
+
+func (m MemoryStorageWrapped[T]) Delete(objectKey resource.ObjectKey) error {
+	m.memoryStorage.Delete(objectKey)
+	return nil
+}
+
+func (m MemoryStorageWrapped[T]) GetMemoryStorage() *MemoryStorage[T] {
+	return m.memoryStorage
 }
 
 type storageOpts struct {
