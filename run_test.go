@@ -18,7 +18,7 @@ type testResource struct {
 }
 
 func (c *testResource) DeepCopy() *testResource {
-	return DeepCopyStruct(c).(*testResource)
+	return resource.DeepCopyStruct(c).(*testResource)
 }
 
 type fakeReconciler[T resource.Object[T]] struct {
