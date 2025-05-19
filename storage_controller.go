@@ -1,23 +1,24 @@
 package controlloop
 
 import (
+	"context"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
 )
 
 type Storage[T resource.Object[T]] interface {
-	Create(item T) error
-	Get(objectKey resource.ObjectKey) (T, bool, error)
-	List(listOpts resource.ListOpts) (map[resource.ObjectKey]T, error)
-	Update(item T) error
-	UpdateStatus(item T) error
-	Delete(objectKey resource.ObjectKey) error
+	Create(ctx context.Context, item T) error
+	Get(ctx context.Context, objectKey resource.ObjectKey) (T, bool, error)
+	List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error)
+	Update(ctx context.Context, item T) error
+	UpdateStatus(ctx context.Context, item T) error
+	Delete(ctx context.Context, objectKey resource.ObjectKey) error
 }
 
 type Receiver interface {
-	Receive(objectKey resource.ObjectKey) error
-	Remove(objectKey resource.ObjectKey)
-	Init() error
+	Receive(ctx context.Context, objectKey resource.ObjectKey) error
+	Remove(ctx context.Context, objectKey resource.ObjectKey)
+	Init(ctx context.Context) error
 	GetGroupKind() resource.GroupKind
 }
 
@@ -50,8 +51,8 @@ func NewStorageController[T resource.Object[T]](
 	return sc, nil
 }
 
-func (s *StorageController[T]) Init() error {
-	listPendingResources, err := s.externalStorage.ListPending(s.shardID, s.groupKind)
+func (s *StorageController[T]) Init(ctx context.Context) error {
+	listPendingResources, err := s.externalStorage.ListPending(ctx, s.shardID, s.groupKind)
 	if err != nil {
 		return fmt.Errorf("cannot list pending resources: %w", err)
 	}
@@ -62,8 +63,8 @@ func (s *StorageController[T]) Init() error {
 	return nil
 }
 
-func (s *StorageController[T]) Receive(objectKey resource.ObjectKey) error {
-	res, exist, err := s.externalStorage.Get(s.shardID, s.groupKind, objectKey)
+func (s *StorageController[T]) Receive(ctx context.Context, objectKey resource.ObjectKey) error {
+	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
 	if err != nil {
 		return fmt.Errorf("cannot get received resource: %w", err)
 	}
@@ -75,7 +76,7 @@ func (s *StorageController[T]) Receive(objectKey resource.ObjectKey) error {
 	return nil
 }
 
-func (s *StorageController[T]) Remove(objectKey resource.ObjectKey) {
+func (s *StorageController[T]) Remove(ctx context.Context, objectKey resource.ObjectKey) {
 	s.memoryStorage.Delete(objectKey)
 }
 
@@ -83,8 +84,8 @@ func (s *StorageController[T]) GetGroupKind() resource.GroupKind {
 	return s.groupKind
 }
 
-func (s *StorageController[T]) Create(item T) error {
-	item, err := s.externalStorage.Create(item)
+func (s *StorageController[T]) Create(ctx context.Context, item T) error {
+	item, err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
@@ -93,13 +94,13 @@ func (s *StorageController[T]) Create(item T) error {
 	return nil
 }
 
-func (s *StorageController[T]) Get(objectKey resource.ObjectKey) (T, bool, error) {
+func (s *StorageController[T]) Get(ctx context.Context, objectKey resource.ObjectKey) (T, bool, error) {
 	var zero T
 	res, ok := s.memoryStorage.Get(objectKey)
 	if ok {
 		return res, true, nil
 	}
-	res, exist, err := s.externalStorage.Get(s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
@@ -110,9 +111,9 @@ func (s *StorageController[T]) Get(objectKey resource.ObjectKey) (T, bool, error
 	return res, true, nil
 }
 
-func (s *StorageController[T]) List(listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
+func (s *StorageController[T]) List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
 	result := map[resource.ObjectKey]T{}
-	items, err := s.externalStorage.List(listOpts)
+	items, err := s.externalStorage.List(ctx, listOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot list resources: %w", err)
 	}
@@ -122,8 +123,8 @@ func (s *StorageController[T]) List(listOpts resource.ListOpts) (map[resource.Ob
 	return result, nil
 }
 
-func (s *StorageController[T]) Update(item T) error {
-	res, err := s.externalStorage.Update(item)
+func (s *StorageController[T]) Update(ctx context.Context, item T) error {
+	res, err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
@@ -132,8 +133,8 @@ func (s *StorageController[T]) Update(item T) error {
 	return nil
 }
 
-func (s *StorageController[T]) UpdateStatus(item T) error {
-	res, err := s.externalStorage.UpdateStatus(item)
+func (s *StorageController[T]) UpdateStatus(ctx context.Context, item T) error {
+	res, err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
@@ -141,8 +142,8 @@ func (s *StorageController[T]) UpdateStatus(item T) error {
 	return nil
 }
 
-func (s *StorageController[T]) Delete(item resource.ObjectKey) error {
-	err := s.externalStorage.Delete(s.shardID, s.groupKind, item)
+func (s *StorageController[T]) Delete(ctx context.Context, item resource.ObjectKey) error {
+	err := s.externalStorage.Delete(ctx, s.shardID, s.groupKind, item)
 	if err != nil {
 		return fmt.Errorf("cannot delete resource: %w", err)
 	}

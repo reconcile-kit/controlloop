@@ -82,21 +82,23 @@ type TestInformer struct {
 	ch chan incomeMessage
 }
 
-func (i *TestInformer) Listen(shardID string, f func(kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func())) {
+func (i *TestInformer) Listen(shardID string, f func(ctx context.Context, kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func())) {
+	ctx := context.Background()
 	for message := range i.ch {
-		f(message.kind, message.name, message.messageType, func() {})
+
+		f(ctx, message.kind, message.name, message.messageType, func() {})
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
-func (i *TestInformer) ClearQueue() error {
+func (i *TestInformer) ClearQueue(ctx context.Context) error {
 	return nil
 }
 
 type testExternalStorage[T resource.Object[T]] struct {
 }
 
-func (t testExternalStorage[T]) Create(item T) (T, error) {
+func (t testExternalStorage[T]) Create(ctx context.Context, item T) (T, error) {
 	return item, nil
 }
 
@@ -115,30 +117,30 @@ func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey
 	return zero
 }
 
-func (t testExternalStorage[T]) Get(shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
+func (t testExternalStorage[T]) Get(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
 	return newTestObject[T](groupKind, objectKey), true, nil
 }
 
-func (t testExternalStorage[T]) List(listOpts resource.ListOpts) ([]T, error) {
+func (t testExternalStorage[T]) List(ctx context.Context, listOpts resource.ListOpts) ([]T, error) {
 	return []T{newTestObject[T](resource.GroupKind{Group: "test", Kind: "test"},
 		resource.ObjectKey{Namespace: "test", Name: "test"})}, nil
 }
 
-func (t testExternalStorage[T]) ListPending(shardID string, groupKind resource.GroupKind) ([]T, error) {
+func (t testExternalStorage[T]) ListPending(ctx context.Context, shardID string, groupKind resource.GroupKind) ([]T, error) {
 	return []T{newTestObject[T](resource.GroupKind{Group: "test", Kind: "test"},
 		resource.ObjectKey{Namespace: "test", Name: "testPending"}), newTestObject[T](resource.GroupKind{Group: "test", Kind: "test"},
 		resource.ObjectKey{Namespace: "test", Name: "testPending2"})}, nil
 }
 
-func (t testExternalStorage[T]) Update(item T) (T, error) {
+func (t testExternalStorage[T]) Update(ctx context.Context, item T) (T, error) {
 	return item, nil
 }
 
-func (t testExternalStorage[T]) UpdateStatus(item T) (T, error) {
+func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) (T, error) {
 	return item, nil
 }
 
-func (t testExternalStorage[T]) Delete(shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
+func (t testExternalStorage[T]) Delete(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
 	return nil
 }
 
@@ -153,6 +155,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	obj.Namespace = "test"
 	obj.Kind = "test"
 	obj.ResourceGroup = "test"
+	ctx := context.Background()
 
 	externalStorage := &testExternalStorage[*testResource]{}
 
@@ -173,7 +176,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		}
 		informer.ch <- im
 	}
-	err = NewStorageInformer("test", informer, []Receiver{sc}).Run()
+	err = NewStorageInformer("test", informer, []Receiver{sc}).Run(ctx)
 	if err != nil {
 		t.Error(err)
 	}
@@ -203,7 +206,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		t.Error("storage set is empty")
 	}
 
-	err = testResourceClient.Create(&testResource{Resource: resource.Resource{
+	err = testResourceClient.Create(ctx, &testResource{Resource: resource.Resource{
 		ResourceGroup: "test",
 		Kind:          "test",
 		Namespace:     "test",

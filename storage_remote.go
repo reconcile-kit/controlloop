@@ -1,6 +1,7 @@
 package controlloop
 
 import (
+	"context"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
 )
@@ -24,21 +25,21 @@ func NewRemoteClient[T resource.Object[T]](
 	return sc, nil
 }
 
-func (s *RemoteClient[T]) Delete(objectKey resource.ObjectKey) error {
-	return s.externalStorage.Delete(s.shardID, s.groupKind, objectKey)
+func (s *RemoteClient[T]) Delete(ctx context.Context, objectKey resource.ObjectKey) error {
+	return s.externalStorage.Delete(ctx, s.shardID, s.groupKind, objectKey)
 }
 
-func (s *RemoteClient[T]) Create(item T) error {
-	item, err := s.externalStorage.Create(item)
+func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
+	item, err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
 	return nil
 }
 
-func (s *RemoteClient[T]) Get(objectKey resource.ObjectKey) (T, bool, error) {
+func (s *RemoteClient[T]) Get(ctx context.Context, objectKey resource.ObjectKey) (T, bool, error) {
 	var zero T
-	res, exist, err := s.externalStorage.Get(s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
@@ -48,9 +49,9 @@ func (s *RemoteClient[T]) Get(objectKey resource.ObjectKey) (T, bool, error) {
 	return res, true, nil
 }
 
-func (s *RemoteClient[T]) List(listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
+func (s *RemoteClient[T]) List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
 	result := map[resource.ObjectKey]T{}
-	items, err := s.externalStorage.List(listOpts)
+	items, err := s.externalStorage.List(ctx, listOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot list resources: %w", err)
 	}
@@ -60,16 +61,16 @@ func (s *RemoteClient[T]) List(listOpts resource.ListOpts) (map[resource.ObjectK
 	return result, nil
 }
 
-func (s *RemoteClient[T]) Update(item T) error {
-	_, err := s.externalStorage.Update(item)
+func (s *RemoteClient[T]) Update(ctx context.Context, item T) error {
+	_, err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
 	return nil
 }
 
-func (s *RemoteClient[T]) UpdateStatus(item T) error {
-	_, err := s.externalStorage.UpdateStatus(item)
+func (s *RemoteClient[T]) UpdateStatus(ctx context.Context, item T) error {
+	_, err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}

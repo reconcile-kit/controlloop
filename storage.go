@@ -1,6 +1,7 @@
 package controlloop
 
 import (
+	"context"
 	"github.com/reconcile-kit/api/resource"
 	"k8s.io/client-go/util/workqueue"
 	"sync"
@@ -128,12 +129,12 @@ func NewMemoryStorageWrapped[T resource.Object[T]](opts ...StorageOption) *Memor
 	}
 }
 
-func (m MemoryStorageWrapped[T]) Create(item T) error {
+func (m MemoryStorageWrapped[T]) Create(ctx context.Context, item T) error {
 	m.memoryStorage.Add(item)
 	return nil
 }
 
-func (m MemoryStorageWrapped[T]) Get(key resource.ObjectKey) (T, bool, error) {
+func (m MemoryStorageWrapped[T]) Get(ctx context.Context, key resource.ObjectKey) (T, bool, error) {
 	item, ok := m.memoryStorage.Get(key)
 	if !ok {
 		return item, false, nil
@@ -141,20 +142,20 @@ func (m MemoryStorageWrapped[T]) Get(key resource.ObjectKey) (T, bool, error) {
 	return item, true, nil
 }
 
-func (m MemoryStorageWrapped[T]) List(listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
+func (m MemoryStorageWrapped[T]) List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
 	list := m.memoryStorage.List()
 	return list, nil
 }
 
-func (m MemoryStorageWrapped[T]) Update(item T) error {
+func (m MemoryStorageWrapped[T]) Update(ctx context.Context, item T) error {
 	return m.memoryStorage.Update(item)
 }
 
-func (m MemoryStorageWrapped[T]) UpdateStatus(item T) error {
+func (m MemoryStorageWrapped[T]) UpdateStatus(ctx context.Context, item T) error {
 	return m.memoryStorage.UpdateWithoutRequeue(item)
 }
 
-func (m MemoryStorageWrapped[T]) Delete(objectKey resource.ObjectKey) error {
+func (m MemoryStorageWrapped[T]) Delete(ctx context.Context, objectKey resource.ObjectKey) error {
 	m.memoryStorage.Delete(objectKey)
 	return nil
 }

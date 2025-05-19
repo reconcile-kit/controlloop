@@ -1,6 +1,7 @@
 package controlloop
 
 import (
+	"context"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
 )
@@ -24,13 +25,13 @@ func NewStorageInformer(shardID string, listener resource.ExternalListener, rece
 	}
 }
 
-func (s *StorageInformer) Run() error {
-	err := s.listener.ClearQueue()
+func (s *StorageInformer) Run(ctx context.Context) error {
+	err := s.listener.ClearQueue(ctx)
 	if err != nil {
 		return fmt.Errorf("error clearing queue: %w", err)
 	}
 	for _, receiver := range s.res {
-		err := receiver.Init()
+		err := receiver.Init(ctx)
 		if err != nil {
 			return fmt.Errorf("error initializing receiver: %w, %s %s", err, receiver.GetGroupKind().Group, receiver.GetGroupKind().Kind)
 		}
@@ -46,29 +47,29 @@ func (s *StorageInformer) Run() error {
 	return nil
 }
 
-func (s *StorageInformer) receiveMessages(kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func()) {
+func (s *StorageInformer) receiveMessages(ctx context.Context, kind resource.GroupKind, objectKey resource.ObjectKey, messageType string, ack func()) {
 
 	go func() {
-		err := s.currentReceive(kind, objectKey, messageType)
+		err := s.currentReceive(ctx, kind, objectKey, messageType)
 		if err == nil {
 			ack()
 		}
 	}()
 }
 
-func (s *StorageInformer) currentReceive(kind resource.GroupKind, objectKey resource.ObjectKey, messageType string) error {
+func (s *StorageInformer) currentReceive(ctx context.Context, kind resource.GroupKind, objectKey resource.ObjectKey, messageType string) error {
 	item, ok := s.res[kind]
 	if !ok {
 		return nil
 	}
 	switch messageType {
 	case resource.MessageTypeUpdate:
-		err := item.Receive(objectKey)
+		err := item.Receive(ctx, objectKey)
 		if err != nil {
 			return err
 		}
 	case resource.MessageTypeDelete:
-		item.Remove(objectKey)
+		item.Remove(ctx, objectKey)
 	}
 	return nil
 }
