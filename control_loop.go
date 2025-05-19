@@ -2,7 +2,7 @@ package controlloop
 
 import (
 	"context"
-	"github.com/reconcile-kit/controlloop/resource"
+	resource "github.com/reconcile-kit/api"
 	"time"
 )
 

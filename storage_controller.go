@@ -2,7 +2,7 @@ package controlloop
 
 import (
 	"fmt"
-	"github.com/reconcile-kit/controlloop/resource"
+	resource "github.com/reconcile-kit/api"
 )
 
 type Storage[T resource.Object[T]] interface {

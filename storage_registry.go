@@ -1,8 +1,8 @@
 package controlloop
 
 import (
+	resource "github.com/reconcile-kit/api"
 	"github.com/reconcile-kit/controlloop/assertions"
-	"github.com/reconcile-kit/controlloop/resource"
 	"reflect"
 	"sync"
 )

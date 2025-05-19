@@ -2,7 +2,7 @@ package controlloop
 
 import (
 	"fmt"
-	"github.com/reconcile-kit/controlloop/resource"
+	resource "github.com/reconcile-kit/api"
 )
 
 type RemoteClient[T resource.Object[T]] struct {
