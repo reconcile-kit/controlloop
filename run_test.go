@@ -99,8 +99,8 @@ func (i *TestInformer) ClearQueue(ctx context.Context) error {
 type testExternalStorage[T resource.Object[T]] struct {
 }
 
-func (t testExternalStorage[T]) Create(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) Create(ctx context.Context, item T) error {
+	return nil
 }
 
 func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey resource.ObjectKey) T {
@@ -133,12 +133,12 @@ func (t testExternalStorage[T]) ListPending(ctx context.Context, shardID string,
 		resource.ObjectKey{Namespace: "test", Name: "testPending2"})}, nil
 }
 
-func (t testExternalStorage[T]) Update(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) Update(ctx context.Context, item T) error {
+	return nil
 }
 
-func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) error {
+	return nil
 }
 
 func (t testExternalStorage[T]) Delete(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {

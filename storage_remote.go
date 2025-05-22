@@ -30,7 +30,7 @@ func (s *RemoteClient[T]) Delete(ctx context.Context, objectKey resource.ObjectK
 }
 
 func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
-	item, err := s.externalStorage.Create(ctx, item)
+	err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
@@ -62,7 +62,7 @@ func (s *RemoteClient[T]) List(ctx context.Context, listOpts resource.ListOpts) 
 }
 
 func (s *RemoteClient[T]) Update(ctx context.Context, item T) error {
-	_, err := s.externalStorage.Update(ctx, item)
+	err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
@@ -70,7 +70,7 @@ func (s *RemoteClient[T]) Update(ctx context.Context, item T) error {
 }
 
 func (s *RemoteClient[T]) UpdateStatus(ctx context.Context, item T) error {
-	_, err := s.externalStorage.UpdateStatus(ctx, item)
+	err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}

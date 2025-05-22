@@ -85,7 +85,7 @@ func (s *StorageController[T]) GetGroupKind() resource.GroupKind {
 }
 
 func (s *StorageController[T]) Create(ctx context.Context, item T) error {
-	item, err := s.externalStorage.Create(ctx, item)
+	err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
@@ -124,21 +124,21 @@ func (s *StorageController[T]) List(ctx context.Context, listOpts resource.ListO
 }
 
 func (s *StorageController[T]) Update(ctx context.Context, item T) error {
-	res, err := s.externalStorage.Update(ctx, item)
+	err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
-	s.memoryStorage.AddWithoutRequeue(res)
+	s.memoryStorage.AddWithoutRequeue(item)
 
 	return nil
 }
 
 func (s *StorageController[T]) UpdateStatus(ctx context.Context, item T) error {
-	res, err := s.externalStorage.UpdateStatus(ctx, item)
+	err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
-	s.memoryStorage.AddWithoutRequeue(res)
+	s.memoryStorage.AddWithoutRequeue(item)
 	return nil
 }
 
