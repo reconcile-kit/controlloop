@@ -92,6 +92,7 @@ func (cl *ControlLoop[T]) Run() {
 				err := cl.Storage.Update(object)
 				if errors.Is(err, AlreadyUpdated) {
 					cl.Queue.queue.Add(object.GetName())
+					cl.Queue.queue.Done(object.GetName())
 				}
 				continue
 			}
