@@ -138,10 +138,12 @@ func (cl *ControlLoop[T]) Stop() {
 	<-cl.exitChannel
 }
 
-func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (Result, error) {
+func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (result Result, reterr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			cl.l.Error(fmt.Errorf("Recovered from panic: %v ", r))
+			err := fmt.Errorf("recovered from panic: %v", r)
+			cl.l.Error(err)
+			reterr = err
 		}
 	}()
 	return r.Reconcile(ctx, object)

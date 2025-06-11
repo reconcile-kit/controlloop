@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Resource                             */
+/* -------------------------------------------------------------------------- */
 type testResource struct {
 	resource.Resource
 }
@@ -21,10 +24,24 @@ func (c *testResource) DeepCopy() *testResource {
 	return resource.DeepCopyStruct(c).(*testResource)
 }
 
-type fakeReconciler[T resource.Object[T]] struct {
-	tb        *testBox
-	callTest3 atomic.Int32
+func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey resource.ObjectKey) T {
+	body := []byte(fmt.Sprintf(`{"name":"%s", "resource_group":"%s", "kind":"%s", "namespace":"%s"}`,
+		objectKey.Name,
+		groupKind.Group,
+		groupKind.Kind,
+		objectKey.Namespace,
+	))
+	var zero T
+	err := json.Unmarshal(body, &zero)
+	if err != nil {
+		panic(err)
+	}
+	return zero
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Box                                  */
+/* -------------------------------------------------------------------------- */
 
 type testBox struct {
 	m         *sync.Mutex
@@ -48,6 +65,15 @@ func newTestBox() *testBox {
 		m:         &sync.Mutex{},
 		resources: map[string]bool{},
 	}
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Reconciler                           */
+/* -------------------------------------------------------------------------- */
+
+type fakeReconciler[T resource.Object[T]] struct {
+	tb        *testBox
+	callTest3 atomic.Int32
 }
 
 func (f *fakeReconciler[T]) Reconcile(ctx context.Context, obj *testResource) (Result, error) {
@@ -78,6 +104,10 @@ type incomeMessage struct {
 	messageType string
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Informer                             */
+/* -------------------------------------------------------------------------- */
+
 type TestInformer struct {
 	ch      chan incomeMessage
 	shardID string
@@ -96,26 +126,15 @@ func (i *TestInformer) ClearQueue(ctx context.Context) error {
 	return nil
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST External Storage                     */
+/* -------------------------------------------------------------------------- */
+
 type testExternalStorage[T resource.Object[T]] struct {
 }
 
 func (t testExternalStorage[T]) Create(ctx context.Context, item T) error {
 	return nil
-}
-
-func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey resource.ObjectKey) T {
-	body := []byte(fmt.Sprintf(`{"name":"%s", "resource_group":"%s", "kind":"%s", "namespace":"%s"}`,
-		objectKey.Name,
-		groupKind.Group,
-		groupKind.Kind,
-		objectKey.Namespace,
-	))
-	var zero T
-	err := json.Unmarshal(body, &zero)
-	if err != nil {
-		panic(err)
-	}
-	return zero
 }
 
 func (t testExternalStorage[T]) Get(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
@@ -193,13 +212,6 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	}
 	informer.ch <- im
 
-	//imDelete := incomeMessage{
-	//	kind:        resource.GroupKind{Group: "test", Kind: "test"},
-	//	name:        resource.ObjectKey{Namespace: "test", Name: "test4"},
-	//	messageType: resource.MessageTypeDelete,
-	//}
-	//informer.ch <- imDelete
-
 	registry := NewStorageSet()
 	SetStorage[*testResource](registry, sc)
 	testResourceClient, ok := GetStorage[*testResource](registry)
@@ -239,8 +251,6 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	}, time.Second*5, 10*time.Millisecond, "reconcile must be called once")
 
 	fmt.Println("Stopping")
-
 	cl.Stop()
-
 	assert.Equal(t, 0, cl.Queue.len())
 }
