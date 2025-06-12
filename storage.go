@@ -111,11 +111,11 @@ func (s *MemoryStorage[T]) getLast() (T, bool, error) {
 		return zero, true, nil
 	}
 	s.m.Lock()
+	defer s.m.Unlock()
 	if _, exist := s.objects[name]; !exist {
 		return zero, false, KeyNotExist
 	}
 	objectCopy := s.objects[name].DeepCopy()
-	s.m.Unlock()
 	return objectCopy, false, nil
 }
 
