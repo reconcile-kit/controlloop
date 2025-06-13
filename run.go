@@ -101,6 +101,7 @@ func (cl *ControlLoop[T]) Run() {
 			switch {
 			case err != nil:
 				cl.Queue.addRateLimited(object)
+				cl.l.Error(err.Error())
 			case result.RequeueAfter > 0:
 				cl.Queue.addAfter(object, result.RequeueAfter)
 			case result.Requeue:
