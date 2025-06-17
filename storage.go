@@ -104,19 +104,19 @@ func (s *MemoryStorage[T]) Delete(objectKey resource.ObjectKey) {
 	delete(s.objects, objectKey)
 }
 
-func (s *MemoryStorage[T]) getLast() (T, bool, error) {
+func (s *MemoryStorage[T]) getLast() (resource.ObjectKey, T, bool, error) {
 	var zero T
 	name, shutdown := s.Queue.get()
 	if shutdown {
-		return zero, true, nil
+		return name, zero, true, nil
 	}
 	s.m.Lock()
 	defer s.m.Unlock()
 	if _, exist := s.objects[name]; !exist {
-		return zero, false, KeyNotExist
+		return name, zero, false, KeyNotExist
 	}
 	objectCopy := s.objects[name].DeepCopy()
-	return objectCopy, false, nil
+	return name, objectCopy, false, nil
 }
 
 type MemoryStorageWrapped[T resource.Object[T]] struct {
