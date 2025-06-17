@@ -83,6 +83,7 @@ func (cl *ControlLoop[T]) Run() {
 			if err != nil {
 				// object already deleted
 				if errors.Is(err, KeyNotExist) {
+					cl.Queue.done(object)
 					continue
 				}
 			}
@@ -91,7 +92,8 @@ func (cl *ControlLoop[T]) Run() {
 				object.SetKillTimestamp(time.Now())
 				err := cl.Storage.Update(object)
 				if errors.Is(err, AlreadyUpdated) {
-					cl.Queue.queue.Add(object.GetName())
+					cl.Queue.add(object)
+					cl.Queue.done(object)
 				}
 				continue
 			}
