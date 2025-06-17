@@ -83,7 +83,7 @@ func (cl *ControlLoop[T]) Run() {
 			if err != nil {
 				// object already deleted
 				if errors.Is(err, KeyNotExist) {
-					cl.Queue.done(object)
+					cl.Queue.queue.Done(object.GetName())
 					continue
 				}
 			}
