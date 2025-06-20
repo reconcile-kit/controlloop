@@ -64,7 +64,7 @@ func (s *StorageController[T]) Init(ctx context.Context) error {
 }
 
 func (s *StorageController[T]) Receive(ctx context.Context, objectKey resource.ObjectKey) error {
-	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return fmt.Errorf("cannot get received resource: %w", err)
 	}
@@ -100,7 +100,7 @@ func (s *StorageController[T]) Get(ctx context.Context, objectKey resource.Objec
 	if ok {
 		return res, true, nil
 	}
-	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
@@ -143,7 +143,7 @@ func (s *StorageController[T]) UpdateStatus(ctx context.Context, item T) error {
 }
 
 func (s *StorageController[T]) Delete(ctx context.Context, item resource.ObjectKey) error {
-	err := s.externalStorage.Delete(ctx, s.shardID, s.groupKind, item)
+	err := s.externalStorage.Delete(ctx, s.groupKind, item)
 	if err != nil {
 		return fmt.Errorf("cannot delete resource: %w", err)
 	}

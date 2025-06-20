@@ -137,7 +137,7 @@ func (t testExternalStorage[T]) Create(ctx context.Context, item T) error {
 	return nil
 }
 
-func (t testExternalStorage[T]) Get(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
+func (t testExternalStorage[T]) Get(ctx context.Context, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
 	return newTestObject[T](groupKind, objectKey), true, nil
 }
 
@@ -160,7 +160,7 @@ func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) error 
 	return nil
 }
 
-func (t testExternalStorage[T]) Delete(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
+func (t testExternalStorage[T]) Delete(ctx context.Context, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
 	return nil
 }
 

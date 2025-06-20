@@ -23,8 +23,8 @@ func NewRemoteClient[T resource.Object[T]](
 	return sc, nil
 }
 
-func (s *RemoteClient[T]) Delete(ctx context.Context, shardID string, objectKey resource.ObjectKey) error {
-	return s.externalStorage.Delete(ctx, shardID, s.groupKind, objectKey)
+func (s *RemoteClient[T]) Delete(ctx context.Context, objectKey resource.ObjectKey) error {
+	return s.externalStorage.Delete(ctx, s.groupKind, objectKey)
 }
 
 func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
@@ -35,9 +35,9 @@ func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
 	return nil
 }
 
-func (s *RemoteClient[T]) Get(ctx context.Context, shardID string, objectKey resource.ObjectKey) (T, bool, error) {
+func (s *RemoteClient[T]) Get(ctx context.Context, objectKey resource.ObjectKey) (T, bool, error) {
 	var zero T
-	res, exist, err := s.externalStorage.Get(ctx, shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
