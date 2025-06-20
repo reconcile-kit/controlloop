@@ -20,6 +20,9 @@ type testResource struct {
 	resource.Resource
 }
 
+func (c *testResource) GetGK() resource.GroupKind {
+	return resource.GroupKind{Group: "test", Kind: "test"}
+}
 func (c *testResource) DeepCopy() *testResource {
 	return resource.DeepCopyStruct(c).(*testResource)
 }
@@ -141,7 +144,7 @@ func (t testExternalStorage[T]) Get(ctx context.Context, groupKind resource.Grou
 	return newTestObject[T](groupKind, objectKey), true, nil
 }
 
-func (t testExternalStorage[T]) List(ctx context.Context, listOpts resource.ListOpts) ([]T, error) {
+func (t testExternalStorage[T]) List(ctx context.Context, groupKind resource.GroupKind, listOpts resource.ListOpts) ([]T, error) {
 	return []T{newTestObject[T](resource.GroupKind{Group: "test", Kind: "test"},
 		resource.ObjectKey{Namespace: "test", Name: "test"})}, nil
 }
@@ -170,19 +173,11 @@ func (t testExternalStorage[T]) Delete(ctx context.Context, groupKind resource.G
 
 func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	rec := &fakeReconciler[*testResource]{tb: newTestBox()}
-	obj := &testResource{}
-	obj.Name = "test"
-	obj.Namespace = "test"
-	obj.Kind = "test"
-	obj.ResourceGroup = "test"
 	ctx := context.Background()
 
 	externalStorage := &testExternalStorage[*testResource]{}
 
-	sc, err := NewStorageController[*testResource]("test", resource.GroupKind{
-		Group: "test",
-		Kind:  "test",
-	}, externalStorage, NewMemoryStorage[*testResource]())
+	sc, err := NewStorageController[*testResource]("test", externalStorage, NewMemoryStorage[*testResource]())
 	if err != nil {
 		t.Error(err)
 	}
