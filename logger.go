@@ -7,11 +7,11 @@ type Logger interface {
 	Info(args ...interface{})
 }
 
-type logger struct{}
+type SimpleLogger struct{}
 
-func (l *logger) Error(args ...interface{}) {
+func (l *SimpleLogger) Error(args ...interface{}) {
 	fmt.Println(args...)
 }
-func (l *logger) Info(args ...interface{}) {
+func (l *SimpleLogger) Info(args ...interface{}) {
 	fmt.Println(args...)
 }

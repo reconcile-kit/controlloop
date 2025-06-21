@@ -40,7 +40,7 @@ func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], opti
 	if currentOptions.logger != nil {
 		controlLoop.l = currentOptions.logger
 	} else {
-		controlLoop.l = &logger{}
+		controlLoop.l = &SimpleLogger{}
 	}
 
 	if currentOptions.concurrency > 0 {
