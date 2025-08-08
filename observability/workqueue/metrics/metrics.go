@@ -15,7 +15,7 @@ const (
 	WorkDurationKey            = "work_duration_seconds"
 	UnfinishedWorkKey          = "unfinished_work_seconds"
 	LongestRunningProcessorKey = "longest_running_processor_seconds"
-	RetriesKey
+	RetriesKey                 = "retries_total"
 )
 
 var (
