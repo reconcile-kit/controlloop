@@ -13,18 +13,38 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Resource                             */
+/* -------------------------------------------------------------------------- */
 type testResource struct {
 	resource.Resource
 }
 
+func (c *testResource) GetGK() resource.GroupKind {
+	return resource.GroupKind{Group: "test", Kind: "test"}
+}
 func (c *testResource) DeepCopy() *testResource {
 	return resource.DeepCopyStruct(c).(*testResource)
 }
 
-type fakeReconciler[T resource.Object[T]] struct {
-	tb        *testBox
-	callTest3 atomic.Int32
+func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey resource.ObjectKey) T {
+	body := []byte(fmt.Sprintf(`{"name":"%s", "resource_group":"%s", "kind":"%s", "namespace":"%s"}`,
+		objectKey.Name,
+		groupKind.Group,
+		groupKind.Kind,
+		objectKey.Namespace,
+	))
+	var zero T
+	err := json.Unmarshal(body, &zero)
+	if err != nil {
+		panic(err)
+	}
+	return zero
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Box                                  */
+/* -------------------------------------------------------------------------- */
 
 type testBox struct {
 	m         *sync.Mutex
@@ -48,6 +68,15 @@ func newTestBox() *testBox {
 		m:         &sync.Mutex{},
 		resources: map[string]bool{},
 	}
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Reconciler                           */
+/* -------------------------------------------------------------------------- */
+
+type fakeReconciler[T resource.Object[T]] struct {
+	tb        *testBox
+	callTest3 atomic.Int32
 }
 
 func (f *fakeReconciler[T]) Reconcile(ctx context.Context, obj *testResource) (Result, error) {
@@ -78,6 +107,10 @@ type incomeMessage struct {
 	messageType string
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Informer                             */
+/* -------------------------------------------------------------------------- */
+
 type TestInformer struct {
 	ch      chan incomeMessage
 	shardID string
@@ -96,33 +129,22 @@ func (i *TestInformer) ClearQueue(ctx context.Context) error {
 	return nil
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  TEST External Storage                     */
+/* -------------------------------------------------------------------------- */
+
 type testExternalStorage[T resource.Object[T]] struct {
 }
 
-func (t testExternalStorage[T]) Create(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) Create(ctx context.Context, item T) error {
+	return nil
 }
 
-func newTestObject[T resource.Object[T]](groupKind resource.GroupKind, objectKey resource.ObjectKey) T {
-	body := []byte(fmt.Sprintf(`{"name":"%s", "resource_group":"%s", "kind":"%s", "namespace":"%s"}`,
-		objectKey.Name,
-		groupKind.Group,
-		groupKind.Kind,
-		objectKey.Namespace,
-	))
-	var zero T
-	err := json.Unmarshal(body, &zero)
-	if err != nil {
-		panic(err)
-	}
-	return zero
-}
-
-func (t testExternalStorage[T]) Get(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
+func (t testExternalStorage[T]) Get(ctx context.Context, groupKind resource.GroupKind, objectKey resource.ObjectKey) (T, bool, error) {
 	return newTestObject[T](groupKind, objectKey), true, nil
 }
 
-func (t testExternalStorage[T]) List(ctx context.Context, listOpts resource.ListOpts) ([]T, error) {
+func (t testExternalStorage[T]) List(ctx context.Context, groupKind resource.GroupKind, listOpts resource.ListOpts) ([]T, error) {
 	return []T{newTestObject[T](resource.GroupKind{Group: "test", Kind: "test"},
 		resource.ObjectKey{Namespace: "test", Name: "test"})}, nil
 }
@@ -133,15 +155,15 @@ func (t testExternalStorage[T]) ListPending(ctx context.Context, shardID string,
 		resource.ObjectKey{Namespace: "test", Name: "testPending2"})}, nil
 }
 
-func (t testExternalStorage[T]) Update(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) Update(ctx context.Context, item T) error {
+	return nil
 }
 
-func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) (T, error) {
-	return item, nil
+func (t testExternalStorage[T]) UpdateStatus(ctx context.Context, item T) error {
+	return nil
 }
 
-func (t testExternalStorage[T]) Delete(ctx context.Context, shardID string, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
+func (t testExternalStorage[T]) Delete(ctx context.Context, groupKind resource.GroupKind, objectKey resource.ObjectKey) error {
 	return nil
 }
 
@@ -151,19 +173,11 @@ func (t testExternalStorage[T]) Delete(ctx context.Context, shardID string, grou
 
 func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	rec := &fakeReconciler[*testResource]{tb: newTestBox()}
-	obj := &testResource{}
-	obj.Name = "test"
-	obj.Namespace = "test"
-	obj.Kind = "test"
-	obj.ResourceGroup = "test"
 	ctx := context.Background()
 
 	externalStorage := &testExternalStorage[*testResource]{}
 
-	sc, err := NewStorageController[*testResource]("test", resource.GroupKind{
-		Group: "test",
-		Kind:  "test",
-	}, externalStorage, NewMemoryStorage[*testResource]())
+	sc, err := NewStorageController[*testResource]("test", externalStorage, NewMemoryStorage[*testResource]())
 	if err != nil {
 		t.Error(err)
 	}
@@ -192,13 +206,6 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		messageType: resource.MessageTypeUpdate,
 	}
 	informer.ch <- im
-
-	//imDelete := incomeMessage{
-	//	kind:        resource.GroupKind{Group: "test", Kind: "test"},
-	//	name:        resource.ObjectKey{Namespace: "test", Name: "test4"},
-	//	messageType: resource.MessageTypeDelete,
-	//}
-	//informer.ch <- imDelete
 
 	registry := NewStorageSet()
 	SetStorage[*testResource](registry, sc)
@@ -239,8 +246,6 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	}, time.Second*5, 10*time.Millisecond, "reconcile must be called once")
 
 	fmt.Println("Stopping")
-
 	cl.Stop()
-
 	assert.Equal(t, 0, cl.Queue.len())
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
 )
 
 type Storage[T resource.Object[T]] interface {
@@ -35,15 +36,20 @@ type StorageController[T resource.Object[T]] struct {
 }
 
 func NewStorageController[T resource.Object[T]](
-	ShardID string,
-	groupKind resource.GroupKind,
+	shardID string,
 	externalStorage resource.ExternalStorage[T],
 	memoryStorage *MemoryStorage[T],
 ) (*StorageController[T], error) {
-
+	gk := assertions.GetGroupKindFromType[T]()
+	if gk.Kind == "" || gk.Group == "" {
+		return nil, fmt.Errorf("group and kind must be set in resource")
+	}
+	if shardID == "" {
+		return nil, fmt.Errorf("shardID is empty for %s %s ", gk.Kind, gk.Group)
+	}
 	sc := &StorageController[T]{
-		shardID:         ShardID,
-		groupKind:       groupKind,
+		shardID:         shardID,
+		groupKind:       gk,
 		memoryStorage:   memoryStorage,
 		externalStorage: externalStorage,
 	}
@@ -64,7 +70,7 @@ func (s *StorageController[T]) Init(ctx context.Context) error {
 }
 
 func (s *StorageController[T]) Receive(ctx context.Context, objectKey resource.ObjectKey) error {
-	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return fmt.Errorf("cannot get received resource: %w", err)
 	}
@@ -85,7 +91,9 @@ func (s *StorageController[T]) GetGroupKind() resource.GroupKind {
 }
 
 func (s *StorageController[T]) Create(ctx context.Context, item T) error {
-	item, err := s.externalStorage.Create(ctx, item)
+	item.SetResourceGroup(s.groupKind.Group)
+	item.SetKind(s.groupKind.Kind)
+	err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
@@ -100,7 +108,7 @@ func (s *StorageController[T]) Get(ctx context.Context, objectKey resource.Objec
 	if ok {
 		return res, true, nil
 	}
-	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
@@ -113,7 +121,7 @@ func (s *StorageController[T]) Get(ctx context.Context, objectKey resource.Objec
 
 func (s *StorageController[T]) List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
 	result := map[resource.ObjectKey]T{}
-	items, err := s.externalStorage.List(ctx, listOpts)
+	items, err := s.externalStorage.List(ctx, s.groupKind, listOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot list resources: %w", err)
 	}
@@ -124,26 +132,30 @@ func (s *StorageController[T]) List(ctx context.Context, listOpts resource.ListO
 }
 
 func (s *StorageController[T]) Update(ctx context.Context, item T) error {
-	res, err := s.externalStorage.Update(ctx, item)
+	item.SetResourceGroup(s.groupKind.Group)
+	item.SetKind(s.groupKind.Kind)
+	err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
-	s.memoryStorage.AddWithoutRequeue(res)
+	s.memoryStorage.AddWithoutRequeue(item)
 
 	return nil
 }
 
 func (s *StorageController[T]) UpdateStatus(ctx context.Context, item T) error {
-	res, err := s.externalStorage.UpdateStatus(ctx, item)
+	item.SetResourceGroup(s.groupKind.Group)
+	item.SetKind(s.groupKind.Kind)
+	err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
-	s.memoryStorage.AddWithoutRequeue(res)
+	s.memoryStorage.AddWithoutRequeue(item)
 	return nil
 }
 
 func (s *StorageController[T]) Delete(ctx context.Context, item resource.ObjectKey) error {
-	err := s.externalStorage.Delete(ctx, s.shardID, s.groupKind, item)
+	err := s.externalStorage.Delete(ctx, s.groupKind, item)
 	if err != nil {
 		return fmt.Errorf("cannot delete resource: %w", err)
 	}

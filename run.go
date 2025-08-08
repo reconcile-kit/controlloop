@@ -43,7 +43,7 @@ func New[T resource.Object[T]](r Reconcile[T], name string, storage ReconcileSto
 	if currentOptions.logger != nil {
 		controlLoop.l = currentOptions.logger
 	} else {
-		controlLoop.l = &logger{}
+		controlLoop.l = &SimpleLogger{}
 	}
 
 	if currentOptions.concurrency > 0 {
@@ -81,13 +81,14 @@ func (cl *ControlLoop[T]) Run() {
 		ctx := context.Background()
 		for {
 
-			object, exit, err := cl.Storage.getLast()
+			name, object, exit, err := cl.Storage.getLast()
 			if exit {
 				return
 			}
 			if err != nil {
 				// object already deleted
 				if errors.Is(err, KeyNotExist) {
+					cl.Queue.queue.Done(name)
 					continue
 				}
 			}
@@ -96,7 +97,8 @@ func (cl *ControlLoop[T]) Run() {
 				object.SetKillTimestamp(time.Now())
 				err := cl.Storage.Update(object)
 				if errors.Is(err, AlreadyUpdated) {
-					cl.Queue.queue.Add(object.GetName())
+					cl.Queue.add(object)
+					cl.Queue.done(object)
 				}
 				continue
 			}
@@ -110,6 +112,7 @@ func (cl *ControlLoop[T]) Run() {
 				cl.Queue.addRateLimited(object)
 				metrics.ReconcileErrors.WithLabelValues(cl.name).Inc()
 				metrics.ReconcileTotal.WithLabelValues(cl.name, labelError).Inc()
+				cl.l.Error(err.Error())
 			case result.RequeueAfter > 0:
 				cl.Queue.addAfter(object, result.RequeueAfter)
 				metrics.ReconcileTotal.WithLabelValues(cl.name, labelRequeueAfter).Inc()
@@ -150,11 +153,13 @@ func (cl *ControlLoop[T]) Stop() {
 	<-cl.exitChannel
 }
 
-func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (Result, error) {
+func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (result Result, reterr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			metrics.ReconcilePanics.WithLabelValues(cl.name).Inc()
-			cl.l.Error(fmt.Errorf("Recovered from panic: %v ", r))
+			err := fmt.Errorf("recovered from panic: %v", r)
+			cl.l.Error(err)
+			reterr = err
 		}
 	}()
 	return r.Reconcile(ctx, object)

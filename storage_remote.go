@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
 )
 
 type RemoteClient[T resource.Object[T]] struct {
@@ -13,24 +14,25 @@ type RemoteClient[T resource.Object[T]] struct {
 }
 
 func NewRemoteClient[T resource.Object[T]](
-	ShardID string,
-	groupKind resource.GroupKind,
 	externalStorage resource.ExternalStorage[T],
 ) (*RemoteClient[T], error) {
+	gk := assertions.GetGroupKindFromType[T]()
+	if gk.Kind == "" || gk.Group == "" {
+		return nil, fmt.Errorf("group and kind must be set in resource")
+	}
 	sc := &RemoteClient[T]{
-		shardID:         ShardID,
-		groupKind:       groupKind,
+		groupKind:       gk,
 		externalStorage: externalStorage,
 	}
 	return sc, nil
 }
 
 func (s *RemoteClient[T]) Delete(ctx context.Context, objectKey resource.ObjectKey) error {
-	return s.externalStorage.Delete(ctx, s.shardID, s.groupKind, objectKey)
+	return s.externalStorage.Delete(ctx, s.groupKind, objectKey)
 }
 
 func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
-	item, err := s.externalStorage.Create(ctx, item)
+	err := s.externalStorage.Create(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot create resource: %w", err)
 	}
@@ -39,7 +41,7 @@ func (s *RemoteClient[T]) Create(ctx context.Context, item T) error {
 
 func (s *RemoteClient[T]) Get(ctx context.Context, objectKey resource.ObjectKey) (T, bool, error) {
 	var zero T
-	res, exist, err := s.externalStorage.Get(ctx, s.shardID, s.groupKind, objectKey)
+	res, exist, err := s.externalStorage.Get(ctx, s.groupKind, objectKey)
 	if err != nil {
 		return zero, false, err
 	}
@@ -51,7 +53,7 @@ func (s *RemoteClient[T]) Get(ctx context.Context, objectKey resource.ObjectKey)
 
 func (s *RemoteClient[T]) List(ctx context.Context, listOpts resource.ListOpts) (map[resource.ObjectKey]T, error) {
 	result := map[resource.ObjectKey]T{}
-	items, err := s.externalStorage.List(ctx, listOpts)
+	items, err := s.externalStorage.List(ctx, s.groupKind, listOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot list resources: %w", err)
 	}
@@ -62,7 +64,7 @@ func (s *RemoteClient[T]) List(ctx context.Context, listOpts resource.ListOpts) 
 }
 
 func (s *RemoteClient[T]) Update(ctx context.Context, item T) error {
-	_, err := s.externalStorage.Update(ctx, item)
+	err := s.externalStorage.Update(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}
@@ -70,7 +72,7 @@ func (s *RemoteClient[T]) Update(ctx context.Context, item T) error {
 }
 
 func (s *RemoteClient[T]) UpdateStatus(ctx context.Context, item T) error {
-	_, err := s.externalStorage.UpdateStatus(ctx, item)
+	err := s.externalStorage.UpdateStatus(ctx, item)
 	if err != nil {
 		return fmt.Errorf("cannot update resource: %w", err)
 	}

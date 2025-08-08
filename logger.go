@@ -3,15 +3,15 @@ package controlloop
 import "fmt"
 
 type Logger interface {
-	Error(err error)
-	Info(format string, args ...interface{})
+	Error(args ...interface{})
+	Info(args ...interface{})
 }
 
-type logger struct{}
+type SimpleLogger struct{}
 
-func (l *logger) Error(err error) {
-	fmt.Println(err.Error())
+func (l *SimpleLogger) Error(args ...interface{}) {
+	fmt.Println(args...)
 }
-func (l *logger) Info(format string, args ...interface{}) {
-	fmt.Println(fmt.Sprintf(format, args...))
+func (l *SimpleLogger) Info(args ...interface{}) {
+	fmt.Println(args...)
 }

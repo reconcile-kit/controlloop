@@ -29,6 +29,8 @@ github.com/reconcile-kit/api v0.0.7 h1:3gJ8I4WAVJf8pb6FDWpnJ65HGae877v7hWkssLuCQ
 github.com/reconcile-kit/api v0.0.7/go.mod h1:XUUXZvlt5fGlY8LMNmfbeFBZhmoPPj6fJ8mqcdW6Ya8=
 github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR38lUII=
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
+github.com/reconcile-kit/api v0.0.13 h1:4eHlMIk2u1q3mlUjCABnnYZSVHngcEQ1wo1scsJnNXI=
+github.com/reconcile-kit/api v0.0.13/go.mod h1:XUUXZvlt5fGlY8LMNmfbeFBZhmoPPj6fJ8mqcdW6Ya8=
 github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 golang.org/x/sys v0.31.0 h1:ioabZlmFYtWhL+TRYpcnNlLwhyxaM9kWTDEmfnprqik=
