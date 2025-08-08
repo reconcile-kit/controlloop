@@ -196,7 +196,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		t.Error(err)
 	}
 
-	cl := New[*testResource](rec, sc /* no options */)
+	cl := New[*testResource](rec, "foo", sc /* no options */)
 
 	cl.Run()
 
