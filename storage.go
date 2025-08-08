@@ -78,7 +78,6 @@ func (s *MemoryStorage[T]) Update(item T) error {
 	curr.IncGeneration()
 	s.objects[item.GetName()] = item
 	s.Queue.add(item)
-	s.Queue.done(item)
 	return nil
 }
 
