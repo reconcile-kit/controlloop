@@ -3,25 +3,27 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/reconcile-kit/controlloop/observability/registry"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
+	"go.opentelemetry.io/contrib/instrumentation/host"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 )
 
-const (
-	defaultMetricsEndpoint = "/observability"
-)
+const defaultMetricsEndpoint = "/observability"
 
 // DefaultBindAddress is the default bind address for the observability server.
 var DefaultBindAddress = ":8080"
 
-// Server is a server that serves observability.
 type Server interface {
-	// Start runs the server.
-	// It will install the observability related resources depending on the server configuration.
 	Start(ctx context.Context) error
 }
 
@@ -30,70 +32,113 @@ type Options struct {
 	// It will be defaulted to ":8080" if unspecified.
 	// Set this to "0" to disable the observability server.
 	BindAddress string
-
 	// ListenConfig contains options for listening to an address on the metric server.
 	ListenConfig net.ListenConfig
+
+	EnableGoRuntime bool // GC, goroutines, mem и т.п.
+	EnableHostProc  bool // CPU, mem, load, процессные метрики
+
+	EnableOTLPPush bool
+	OTLPEndpoint   string // "collector:4317"
+	OTLPInsecure   bool   // true если без TLS
+	OTLPInterval   time.Duration
 }
 
-// setDefaults does defaulting for the Server.
 func (o *Options) setDefaults() {
 	if o.BindAddress == "" {
 		o.BindAddress = DefaultBindAddress
 	}
+	if o.EnableGoRuntime == false && o.EnableHostProc == false {
+		o.EnableGoRuntime = true
+		o.EnableHostProc = true
+	}
+	if o.EnableOTLPPush && o.OTLPInterval <= 0 {
+		o.OTLPInterval = 5 * time.Second
+	}
 }
 
-// NewServer constructs a new observability.Server from the provided options.
 func NewServer(o Options) (Server, error) {
 	o.setDefaults()
-
-	// Skip server creation if observability are disabled.
 	if o.BindAddress == "0" {
 		return nil, nil
 	}
-
-	return &defaultServer{
-		options: o,
-	}, nil
+	return &defaultServer{options: o}, nil
 }
 
-// defaultServer is the default implementation used for Server.
 type defaultServer struct {
 	options Options
-
-	// mu protects access to the bindAddr field.
-	mu sync.RWMutex
+	mu      sync.RWMutex
 }
 
-// Start runs the server.
-// It will install the observability related resources depend on the server configuration.
 func (s *defaultServer) Start(ctx context.Context) error {
-	listener, err := s.createListener(ctx)
+	ln, err := s.createListener(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start observability server: failed to create listener: %w", err)
 	}
 
-	mux := http.NewServeMux()
+	readers := []sdkmetric.Reader{}
 
-	handler := promhttp.HandlerFor(registry.Registry, promhttp.HandlerOpts{
-		ErrorHandling: promhttp.HTTPErrorOnError,
-	})
-	mux.Handle(defaultMetricsEndpoint, handler)
+	// Pull: Prometheus /observability
+	promExp, err := otelprom.New()
+	if err != nil {
+		return fmt.Errorf("prometheus exporter init: %w", err)
+	}
+	readers = append(readers, promExp)
+
+	// Push: OTLP (опционально)
+	if s.options.EnableOTLPPush && s.options.OTLPEndpoint != "" {
+		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(s.options.OTLPEndpoint)}
+		if s.options.OTLPInsecure {
+			opts = append(opts, otlpmetricgrpc.WithInsecure())
+		}
+		otlpExp, err := otlpmetricgrpc.New(ctx, opts...)
+		if err != nil {
+			return fmt.Errorf("otlp exporter init: %w", err)
+		}
+		readers = append(readers, sdkmetric.NewPeriodicReader(otlpExp, sdkmetric.WithInterval(s.options.OTLPInterval)))
+	}
+
+	mpOpts := make([]sdkmetric.Option, 0, len(readers))
+	for _, r := range readers {
+		mpOpts = append(mpOpts, sdkmetric.WithReader(r))
+	}
+	mpOpts = append(mpOpts, metrics.ViewOptions()...)
+
+	mp := sdkmetric.NewMeterProvider(mpOpts...)
+	otel.SetMeterProvider(mp)
+
+	if s.options.EnableGoRuntime {
+		// метрики Go-рантайма (GC, allocs, goroutines, heap/stack, паузы и т.п.)
+		_ = runtime.Start(
+			runtime.WithMinimumReadMemStatsInterval(10 * time.Second),
+		)
+	}
+	if s.options.EnableHostProc {
+		// метрики хоста/процесса: CPU, load, mem, диски, сеть, процессные
+		var err error
+		err = host.Start()
+		if err != nil {
+			return fmt.Errorf("host metrics init: %w", err)
+		}
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle(defaultMetricsEndpoint, promExp)
 
 	srv := newServer(mux)
 
 	idleConnsClosed := make(chan struct{})
 	go func() {
 		<-ctx.Done()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
-			// TODO add logs
-		}
+		_ = srv.Shutdown(ctxShutdown)
+		_ = mp.Shutdown(ctxShutdown)
+
 		close(idleConnsClosed)
 	}()
 
-	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
