@@ -59,7 +59,7 @@ func (cl *ControlLoop[T]) Run() {
 	stopping := atomic.Bool{}
 	stopping.Store(false)
 
-	cl.initMetrics()
+	cl.initMetrics(context.Background())
 
 	go func() {
 		<-cl.stopChannel

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	prom "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net"
 	"net/http"
 	"sync"
@@ -79,7 +81,8 @@ func (s *defaultServer) Start(ctx context.Context) error {
 	readers := []sdkmetric.Reader{}
 
 	// Pull: Prometheus /observability
-	promExp, err := otelprom.New()
+	reg := prom.NewRegistry()
+	promExp, err := otelprom.New(otelprom.WithRegisterer(reg))
 	if err != nil {
 		return fmt.Errorf("prometheus exporter init: %w", err)
 	}
@@ -123,8 +126,7 @@ func (s *defaultServer) Start(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle(defaultMetricsEndpoint, promExp)
-
+	mux.Handle(defaultMetricsEndpoint, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	srv := newServer(mux)
 
 	idleConnsClosed := make(chan struct{})
