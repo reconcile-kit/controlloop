@@ -4,13 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	prom "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
+	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
+	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"net"
+	"net/http"
 )
 
 /* -------------------------------------------------------------------------- */
@@ -77,6 +88,7 @@ func newTestBox() *testBox {
 type fakeReconciler[T resource.Object[T]] struct {
 	tb        *testBox
 	callTest3 atomic.Int32
+	unlock    chan struct{}
 }
 
 func (f *fakeReconciler[T]) Reconcile(ctx context.Context, obj *testResource) (Result, error) {
@@ -92,6 +104,12 @@ func (f *fakeReconciler[T]) Reconcile(ctx context.Context, obj *testResource) (R
 
 	if obj.GetName().Name == "test4" {
 		fmt.Println("Requeue: test4 requeue")
+		return Result{RequeueAfter: time.Second * 2}, nil
+	}
+
+	if obj.GetName().Name == "test_metrics1" && obj.GetKillTimestamp() == "" {
+		<-f.unlock
+		fmt.Println("Requeue: test_metrics1 unlock")
 		return Result{RequeueAfter: time.Second * 2}, nil
 	}
 
@@ -196,7 +214,7 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 		t.Error(err)
 	}
 
-	cl := New[*testResource](rec, "foo", sc /* no options */)
+	cl := New[*testResource](rec, sc /* no options */)
 
 	cl.Run()
 
@@ -247,5 +265,205 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 
 	fmt.Println("Stopping")
 	cl.Stop()
+
 	assert.Equal(t, 0, cl.Queue.len())
+}
+
+func TestControlLoop_Metrics(t *testing.T) {
+	ctx := context.Background()
+
+	expectedLines := []string{
+		`workqueue_depth{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 3`,
+		`workqueue_adds_total_total{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 6`,
+		`controller_runtime_reconcile_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version="",result="success"} 2`,
+		`controller_runtime_reconcile_panics_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 0`,
+		`controller_runtime_reconcile_errors_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 0`,
+		`controller_runtime_max_concurrent_reconciles{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 1`,
+		`controller_runtime_active_workers{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 1`,
+	}
+
+	s, _ := NewServer(Options{})
+
+	go s.Start(ctx)
+
+	unlock := make(chan struct{})
+	rec := &fakeReconciler[*testResource]{tb: newTestBox(), unlock: unlock}
+
+	externalStorage := &testExternalStorage[*testResource]{}
+
+	sc, err := NewStorageController[*testResource]("test", externalStorage, NewMemoryStorage[*testResource]())
+	if err != nil {
+		t.Error(err)
+	}
+
+	informer := &TestInformer{ch: make(chan incomeMessage, 100), shardID: "test"}
+	for i := 1; i < 5; i++ {
+		im := incomeMessage{
+			kind:        resource.GroupKind{Group: "test", Kind: "test"},
+			name:        resource.ObjectKey{Namespace: "test", Name: "test_metrics" + fmt.Sprint(i)},
+			messageType: resource.MessageTypeUpdate,
+		}
+		informer.ch <- im
+	}
+	err = NewStorageInformer("test", informer, []Receiver{sc}).Run(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	cl := New[*testResource](rec, sc /* no options */)
+
+	cl.Run()
+
+	registry := NewStorageSet()
+	SetStorage[*testResource](registry, sc)
+
+	assert.Eventually(t, func() bool {
+		url := "http://" + DefaultBindAddress + defaultMetricsEndpoint
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Logf("failed to GET %s: %v", url, err)
+			return false
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Logf("failed to read body: %v", err)
+			return false
+		}
+
+		text := string(body)
+
+		for _, line := range expectedLines {
+			if !strings.Contains(text, line) {
+				t.Logf("metric line not found: %s", line)
+				return false
+			}
+		}
+
+		return true
+
+	}, time.Second*5, 10*time.Millisecond, "reconcile must be called once")
+
+	t.Logf("Stopping")
+	close(unlock)
+	cl.Stop()
+
+	assert.Equal(t, 0, cl.Queue.len())
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  TEST Metrics Server                       */
+/* -------------------------------------------------------------------------- */
+
+const defaultMetricsEndpoint = "/observability"
+
+// DefaultBindAddress is the default bind address for the observability server.
+var DefaultBindAddress = "localhost:8088"
+
+type Server interface {
+	Start(ctx context.Context) error
+}
+
+type Options struct {
+	// BindAddress is the bind address for the observability server.
+	// It will be defaulted to ":8080" if unspecified.
+	// Set this to "0" to disable the observability server.
+	BindAddress string
+	// ListenConfig contains options for listening to an address on the metric server.
+	ListenConfig net.ListenConfig
+
+	EnableGoRuntime bool // GC, goroutines, mem и т.п.
+	EnableHostProc  bool // CPU, mem, load, процессные метрики
+
+	EnableOTLPPush bool
+	OTLPEndpoint   string // "collector:4317"
+	OTLPInsecure   bool   // true если без TLS
+	OTLPInterval   time.Duration
+}
+
+func (o *Options) setDefaults() {
+	if o.BindAddress == "" {
+		o.BindAddress = DefaultBindAddress
+	}
+	if o.EnableGoRuntime == false && o.EnableHostProc == false {
+		o.EnableGoRuntime = true
+		o.EnableHostProc = true
+	}
+	if o.EnableOTLPPush && o.OTLPInterval <= 0 {
+		o.OTLPInterval = 5 * time.Second
+	}
+}
+
+func NewServer(o Options) (Server, error) {
+	o.setDefaults()
+	readers := []sdkmetric.Reader{}
+
+	// Pull: Prometheus /observability
+	reg := prom.NewRegistry()
+	promExp, err := otelprom.New(otelprom.WithRegisterer(reg))
+	if err != nil {
+		return nil, fmt.Errorf("prometheus exporter init: %w", err)
+	}
+	readers = append(readers, promExp)
+
+	mpOpts := make([]sdkmetric.Option, 0, len(readers))
+	for _, r := range readers {
+		mpOpts = append(mpOpts, sdkmetric.WithReader(r))
+	}
+	mpOpts = append(mpOpts, metrics.ViewOptions()...)
+
+	mp := sdkmetric.NewMeterProvider(mpOpts...)
+	otel.SetMeterProvider(mp)
+	if o.BindAddress == "0" {
+		return nil, nil
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle(defaultMetricsEndpoint, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	srv := newServer(mux)
+
+	return &defaultServer{options: o, srv: srv}, nil
+}
+
+type defaultServer struct {
+	options Options
+	mu      sync.RWMutex
+	srv     *http.Server
+}
+
+func (s *defaultServer) Start(ctx context.Context) error {
+	ln, err := s.createListener(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start observability server: failed to create listener: %w", err)
+	}
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_ = s.srv.Shutdown(ctxShutdown)
+
+		close(idleConnsClosed)
+	}()
+
+	if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+
+	<-idleConnsClosed
+	return nil
+}
+
+func (s *defaultServer) createListener(ctx context.Context) (net.Listener, error) {
+	return s.options.ListenConfig.Listen(ctx, "tcp", s.options.BindAddress)
+}
+
+// New returns a new server with sane defaults.
+func newServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		MaxHeaderBytes:    1 << 20,
+		IdleTimeout:       90 * time.Second, // matches http.DefaultTransport keep-alive timeout
+		ReadHeaderTimeout: 32 * time.Second,
+	}
 }

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
 	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
+	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,15 +27,16 @@ type ControlLoop[T resource.Object[T]] struct {
 	Queue       *Queue[T]
 }
 
-func New[T resource.Object[T]](r Reconcile[T], name string, storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
+func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
 	currentOptions := &opts{}
 	for _, o := range options {
 		o(currentOptions)
 	}
+	t := assertions.TypeOf[T]()
 	memoryStorage := storage.GetMemoryStorage()
 	controlLoop := &ControlLoop[T]{
 		r:           r,
-		name:        name,
+		name:        t.Name(),
 		stopChannel: make(chan struct{}),
 		exitChannel: make(chan struct{}),
 		Storage:     memoryStorage,
@@ -97,13 +100,15 @@ func (cl *ControlLoop[T]) Run() {
 				object.SetKillTimestamp(time.Now())
 				err := cl.Storage.Update(object)
 				if errors.Is(err, AlreadyUpdated) {
-					cl.Queue.add(object)
-					cl.Queue.done(object)
+					cl.Queue.queue.Add(object.GetName())
+					cl.Queue.queue.Done(object.GetName())
 				}
+				cl.Queue.queue.Done(object.GetName())
 				continue
 			}
 
 			metrics.AddActiveWorkers(ctx, cl.name, 1)
+
 			result, err := cl.reconcile(ctx, r, object)
 			metrics.AddActiveWorkers(ctx, cl.name, -1)
 

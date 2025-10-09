@@ -7,7 +7,11 @@ import (
 
 func TypeOf[T any]() reflect.Type {
 	var t T
-	return reflect.TypeOf(t)
+	tp := reflect.TypeOf(t)
+	if tp.Kind() == reflect.Ptr {
+		tp = tp.Elem()
+	}
+	return tp
 }
 
 func As[T any](raw interface{}) (T, bool) {
