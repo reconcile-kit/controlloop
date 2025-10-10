@@ -201,6 +201,9 @@ func GetFreeTCPListener() (net.Listener, int, error) {
 /* -------------------------------------------------------------------------- */
 
 func TestControlLoop_ReconcileAndStop(t *testing.T) {
+
+	observability.Init(observability.Options{})
+
 	rec := &fakeReconciler[*testResource]{tb: newTestBox()}
 	ctx := context.Background()
 
