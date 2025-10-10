@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
 	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
+	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,15 +27,16 @@ type ControlLoop[T resource.Object[T]] struct {
 	Queue       *Queue[T]
 }
 
-func New[T resource.Object[T]](r Reconcile[T], name string, storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
+func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
 	currentOptions := &opts{}
 	for _, o := range options {
 		o(currentOptions)
 	}
+	t := assertions.TypeOf[T]()
 	memoryStorage := storage.GetMemoryStorage()
 	controlLoop := &ControlLoop[T]{
 		r:           r,
-		name:        name,
+		name:        t.Name(),
 		stopChannel: make(chan struct{}),
 		exitChannel: make(chan struct{}),
 		Storage:     memoryStorage,
@@ -59,7 +62,7 @@ func (cl *ControlLoop[T]) Run() {
 	stopping := atomic.Bool{}
 	stopping.Store(false)
 
-	cl.initMetrics()
+	cl.initMetrics(context.Background())
 
 	go func() {
 		<-cl.stopChannel
@@ -97,35 +100,38 @@ func (cl *ControlLoop[T]) Run() {
 				object.SetKillTimestamp(time.Now())
 				err := cl.Storage.Update(object)
 				if errors.Is(err, AlreadyUpdated) {
-					cl.Queue.add(object)
-					cl.Queue.done(object)
+					cl.Queue.queue.Add(object.GetName())
+					cl.Queue.queue.Done(object.GetName())
 				}
+				cl.Queue.queue.Done(object.GetName())
 				continue
 			}
 
-			metrics.ActiveWorkers.WithLabelValues(cl.name).Add(1)
+			metrics.AddActiveWorkers(ctx, cl.name, 1)
+
 			result, err := cl.reconcile(ctx, r, object)
-			metrics.ActiveWorkers.WithLabelValues(cl.name).Add(-1)
+			metrics.AddActiveWorkers(ctx, cl.name, -1)
 
 			switch {
 			case err != nil:
 				cl.Queue.addRateLimited(object)
-				metrics.ReconcileErrors.WithLabelValues(cl.name).Inc()
-				metrics.ReconcileTotal.WithLabelValues(cl.name, labelError).Inc()
+				metrics.IncReconcileErrors(ctx, cl.name, 1)
+				metrics.IncReconcileTotal(ctx, cl.name, labelError, 1)
 				cl.l.Error(err.Error())
 			case result.RequeueAfter > 0:
 				cl.Queue.addAfter(object, result.RequeueAfter)
-				metrics.ReconcileTotal.WithLabelValues(cl.name, labelRequeueAfter).Inc()
+				metrics.IncReconcileTotal(ctx, cl.name, labelRequeueAfter, 1)
 			case result.Requeue:
 				cl.Queue.add(object)
-				metrics.ReconcileTotal.WithLabelValues(cl.name, labelRequeue).Inc()
+				metrics.IncReconcileTotal(ctx, cl.name, labelRequeue, 1)
+
 			default:
 				if object.GetDeletionTimestamp() != "" {
 					cl.Storage.Delete(object.GetName())
 				} else {
 					cl.Queue.finalize(object.GetName())
 				}
-				metrics.ReconcileTotal.WithLabelValues(cl.name, labelSuccess).Inc()
+				metrics.IncReconcileTotal(ctx, cl.name, labelSuccess, 1)
 			}
 
 			cl.Queue.done(object)
@@ -154,9 +160,14 @@ func (cl *ControlLoop[T]) Stop() {
 }
 
 func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (result Result, reterr error) {
+	reconcileStartTS := time.Now()
+	defer func() {
+		duration := time.Since(reconcileStartTS)
+		metrics.ObserveReconcileTime(context.Background(), cl.name, duration.Seconds())
+	}()
 	defer func() {
 		if r := recover(); r != nil {
-			metrics.ReconcilePanics.WithLabelValues(cl.name).Inc()
+			metrics.IncReconcilePanics(ctx, cl.name, 1)
 			err := fmt.Errorf("recovered from panic: %v", r)
 			cl.l.Error(err)
 			reterr = err
@@ -172,13 +183,14 @@ const (
 	labelSuccess      = "success"
 )
 
-func (cl *ControlLoop[T]) initMetrics() {
-	metrics.ReconcileTotal.WithLabelValues(cl.name, labelError).Add(0)
-	metrics.ReconcileTotal.WithLabelValues(cl.name, labelRequeueAfter).Add(0)
-	metrics.ReconcileTotal.WithLabelValues(cl.name, labelRequeue).Add(0)
-	metrics.ReconcileTotal.WithLabelValues(cl.name, labelSuccess).Add(0)
-	metrics.ReconcileErrors.WithLabelValues(cl.name).Add(0)
-	metrics.ReconcilePanics.WithLabelValues(cl.name).Add(0)
-	metrics.WorkerCount.WithLabelValues(cl.name).Set(float64(cl.concurrency))
-	metrics.ActiveWorkers.WithLabelValues(cl.name).Set(0)
+func (cl *ControlLoop[T]) initMetrics(ctx context.Context) {
+	metrics.IncReconcileTotal(ctx, cl.name, labelError, 0)
+	metrics.IncReconcileTotal(ctx, cl.name, labelRequeueAfter, 0)
+	metrics.IncReconcileTotal(ctx, cl.name, labelRequeue, 0)
+	metrics.IncReconcileTotal(ctx, cl.name, labelSuccess, 0)
+	metrics.IncReconcileErrors(ctx, cl.name, 0)
+	metrics.IncReconcilePanics(ctx, cl.name, 0)
+
+	metrics.SetWorkerCount(cl.name, int64(cl.concurrency))
+	metrics.AddActiveWorkers(ctx, cl.name, 0)
 }

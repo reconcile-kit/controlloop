@@ -2,6 +2,7 @@ package controlloop
 
 import (
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
 	"github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"k8s.io/client-go/util/workqueue"
 	"sync"
@@ -15,9 +16,11 @@ type Queue[T resource.Object[T]] struct {
 }
 
 func NewQueue[T resource.Object[T]](rateLimiter workqueue.TypedRateLimiter[resource.ObjectKey]) *Queue[T] {
+	t := assertions.TypeOf[T]()
 	rateLimitingConfig := workqueue.TypedRateLimitingQueueConfig[resource.ObjectKey]{}
 	rateLimitingConfig.DelayingQueue = workqueue.NewTypedDelayingQueueWithConfig[resource.ObjectKey](
 		workqueue.TypedDelayingQueueConfig[resource.ObjectKey]{
+			Name:            t.Name(),
 			MetricsProvider: metrics.WorkqueueMetricsProvider{},
 		})
 	queue := workqueue.NewTypedRateLimitingQueueWithConfig[resource.ObjectKey](rateLimiter, rateLimitingConfig)
