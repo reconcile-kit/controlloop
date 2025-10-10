@@ -33,8 +33,11 @@ var (
 	longestVals    sync.Map // map[key]float64
 )
 
-func init() {
+func Init(m metric.Meter) {
 	meter = otel.Meter("workqueue")
+	if m != nil {
+		meter = m
+	}
 
 	var err error
 

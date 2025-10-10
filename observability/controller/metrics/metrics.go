@@ -56,37 +56,40 @@ func AddActiveWorkers(ctx context.Context, controller string, delta int64) {
 	ActiveWorkersCount.Add(ctx, delta, metric.WithAttributes(attrController.String(controller)))
 }
 
-func init() {
-	meter = otel.Meter("controller-runtime")
+func Init(m metric.Meter) {
+	meter = otel.Meter("controlloop")
+	if m != nil {
+		meter = m
+	}
 
 	var err error
 
-	ReconcileTotal, err = meter.Int64Counter("controller_runtime_reconcile_total")
+	ReconcileTotal, err = meter.Int64Counter("controlloop_reconcile_total")
 	if err != nil {
 		panic(err)
 	}
 
-	ReconcileErrors, err = meter.Int64Counter("controller_runtime_reconcile_errors_total")
+	ReconcileErrors, err = meter.Int64Counter("controlloop_reconcile_errors_total")
 	if err != nil {
 		panic(err)
 	}
 
-	ReconcilePanics, err = meter.Int64Counter("controller_runtime_reconcile_panics_total")
+	ReconcilePanics, err = meter.Int64Counter("controlloop_reconcile_panics_total")
 	if err != nil {
 		panic(err)
 	}
 
-	ReconcileTime, err = meter.Float64Histogram("controller_runtime_reconcile_time_seconds")
+	ReconcileTime, err = meter.Float64Histogram("controlloop_reconcile_time_seconds")
 	if err != nil {
 		panic(err)
 	}
 
-	WorkerCountGauge, err = meter.Int64ObservableGauge("controller_runtime_max_concurrent_reconciles")
+	WorkerCountGauge, err = meter.Int64ObservableGauge("controlloop_max_concurrent_reconciles")
 	if err != nil {
 		panic(err)
 	}
 
-	ActiveWorkersCount, err = meter.Int64UpDownCounter("controller_runtime_active_workers")
+	ActiveWorkersCount, err = meter.Int64UpDownCounter("controlloop_active_workers")
 	if err != nil {
 		panic(err)
 	}

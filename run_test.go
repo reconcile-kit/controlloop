@@ -7,6 +7,7 @@ import (
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/observability"
 	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
 	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -185,6 +187,15 @@ func (t testExternalStorage[T]) Delete(ctx context.Context, groupKind resource.G
 	return nil
 }
 
+func GetFreeTCPListener() (net.Listener, int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, 0, err
+	}
+	addr := ln.Addr().(*net.TCPAddr)
+	return ln, addr.Port, nil
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                   TESTS                                    */
 /* -------------------------------------------------------------------------- */
@@ -272,19 +283,46 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 func TestControlLoop_Metrics(t *testing.T) {
 	ctx := context.Background()
 
+	observability.Init(observability.Options{})
+
 	expectedLines := []string{
 		`workqueue_depth{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 3`,
 		`workqueue_adds_total_total{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 6`,
-		`controller_runtime_reconcile_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version="",result="success"} 2`,
-		`controller_runtime_reconcile_panics_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 0`,
-		`controller_runtime_reconcile_errors_total_total{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 0`,
-		`controller_runtime_max_concurrent_reconciles{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 1`,
-		`controller_runtime_active_workers{controller="testResource",otel_scope_name="controller-runtime",otel_scope_schema_url="",otel_scope_version=""} 1`,
+		`controlloop_reconcile_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version="",result="success"} 2`,
+		`controlloop_reconcile_panics_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 0`,
+		`controlloop_reconcile_errors_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 0`,
+		`controlloop_max_concurrent_reconciles{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 1`,
+		`controlloop_active_workers{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 1`,
 	}
 
-	s, _ := NewServer(Options{})
+	ln, port, err := GetFreeTCPListener()
+	if err != nil {
+		t.Error(err)
+	}
+	ln.Close()
 
-	go s.Start(ctx)
+	s, err := NewServer(Options{
+		BindAddress: DefaultBindAddress + ":" + strconv.Itoa(port),
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	errCh := make(chan error, 1)
+
+	go func() {
+		if err := s.Start(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("server failed to start: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+	}
 
 	unlock := make(chan struct{})
 	rec := &fakeReconciler[*testResource]{tb: newTestBox(), unlock: unlock}
@@ -318,7 +356,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 	SetStorage[*testResource](registry, sc)
 
 	assert.Eventually(t, func() bool {
-		url := "http://" + DefaultBindAddress + defaultMetricsEndpoint
+		url := "http://" + DefaultBindAddress + ":" + strconv.Itoa(port) + defaultMetricsEndpoint
 		resp, err := http.Get(url)
 		if err != nil {
 			t.Logf("failed to GET %s: %v", url, err)
@@ -358,7 +396,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 const defaultMetricsEndpoint = "/observability"
 
 // DefaultBindAddress is the default bind address for the observability server.
-var DefaultBindAddress = "localhost:8088"
+var DefaultBindAddress = "localhost"
 
 type Server interface {
 	Start(ctx context.Context) error
