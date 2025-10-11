@@ -1,12 +1,13 @@
 package controlloop
 
 import (
+	"sync"
+	"time"
+
 	"github.com/reconcile-kit/api/resource"
 	"github.com/reconcile-kit/controlloop/assertions"
 	"github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"k8s.io/client-go/util/workqueue"
-	"sync"
-	"time"
 )
 
 type Queue[T resource.Object[T]] struct {
@@ -30,7 +31,11 @@ func NewQueue[T resource.Object[T]](rateLimiter workqueue.TypedRateLimiter[resou
 func (q *Queue[T]) getExistedItems() map[resource.ObjectKey]resource.Object[T] {
 	q.m.RLock()
 	defer q.m.RUnlock()
-	return q.existedItems
+	mapCopy := make(map[resource.ObjectKey]resource.Object[T], len(q.existedItems))
+	for k, v := range q.existedItems {
+		mapCopy[k] = v
+	}
+	return mapCopy
 }
 
 func (q *Queue[T]) len() int {
