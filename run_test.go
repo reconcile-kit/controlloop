@@ -15,6 +15,7 @@ import (
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -291,14 +292,14 @@ func TestControlLoop_Metrics(t *testing.T) {
 		`controlloop_active_workers{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 1`,
 	}
 
-	ln, _, err := GetFreeTCPListener()
+	ln, port, err := GetFreeTCPListener()
 	if err != nil {
 		t.Error(err)
 	}
 	ln.Close()
 
 	s, err := NewServer(Options{
-		BindAddress: DefaultBindAddress + ":" + "8085",
+		BindAddress: DefaultBindAddress + ":" + strconv.Itoa(port),
 	})
 	if err != nil {
 		t.Error(err)
@@ -352,7 +353,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 	SetStorage[*testResource](registry, sc)
 
 	assert.Eventually(t, func() bool {
-		url := "http://" + DefaultBindAddress + ":" + "8085" + defaultMetricsEndpoint
+		url := "http://" + DefaultBindAddress + ":" + strconv.Itoa(port) + defaultMetricsEndpoint
 		resp, err := http.Get(url)
 		if err != nil {
 			t.Logf("failed to GET %s: %v", url, err)
