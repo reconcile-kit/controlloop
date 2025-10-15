@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
 	"github.com/reconcile-kit/controlloop/assertions"
-	_ "github.com/reconcile-kit/controlloop/testdata/workqueue/metrics"
 	"k8s.io/utils/clock"
 	"sync"
 	"sync/atomic"
@@ -163,15 +162,13 @@ func (cl *ControlLoop[T]) Stop() {
 func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (result Result, reterr error) {
 	reconcileStartTS := time.Now()
 	defer func() {
-		cl.metrics.reconcileTime.Observe(cl.metrics.sinceInSeconds(reconcileStartTS))
-	}()
-	defer func() {
 		if r := recover(); r != nil {
 			cl.metrics.reconcilePanics.Inc()
 			err := fmt.Errorf("recovered from panic: %v", r)
 			cl.l.Error(err)
 			reterr = err
 		}
+		cl.metrics.reconcileTime.Observe(cl.metrics.sinceInSeconds(reconcileStartTS))
 	}()
 	return r.Reconcile(ctx, object)
 }
