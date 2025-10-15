@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/reconcile-kit/api/resource"
 	"github.com/reconcile-kit/controlloop/assertions"
-	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
-	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
+	_ "github.com/reconcile-kit/controlloop/testdata/workqueue/metrics"
+	"k8s.io/utils/clock"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +25,7 @@ type ControlLoop[T resource.Object[T]] struct {
 	concurrency int
 	Storage     *MemoryStorage[T]
 	Queue       *Queue[T]
+	metrics     *defaultControllerMetrics
 }
 
 func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], options ...ClOption) *ControlLoop[T] {
@@ -55,14 +56,14 @@ func New[T resource.Object[T]](r Reconcile[T], storage ReconcileStorage[T], opti
 		controlLoop.concurrency = 1
 	}
 
+	controlLoop.metrics = newControllerMetrics(currentOptions.metricsProvider, t.Name(), clock.RealClock{})
+
 	return controlLoop
 }
 
 func (cl *ControlLoop[T]) Run() {
 	stopping := atomic.Bool{}
 	stopping.Store(false)
-
-	cl.initMetrics(context.Background())
 
 	go func() {
 		<-cl.stopChannel
@@ -107,23 +108,22 @@ func (cl *ControlLoop[T]) Run() {
 				continue
 			}
 
-			metrics.AddActiveWorkers(ctx, cl.name, 1)
-
+			cl.metrics.activeWorkers.Inc()
 			result, err := cl.reconcile(ctx, r, object)
-			metrics.AddActiveWorkers(ctx, cl.name, -1)
+			cl.metrics.activeWorkers.Dec()
 
 			switch {
 			case err != nil:
 				cl.Queue.addRateLimited(object)
-				metrics.IncReconcileErrors(ctx, cl.name, 1)
-				metrics.IncReconcileTotal(ctx, cl.name, labelError, 1)
+				cl.metrics.reconcileErrors.Inc()
+				cl.metrics.reconcileTotal.IncLabeled(labelError)
 				cl.l.Error(err.Error())
 			case result.RequeueAfter > 0:
 				cl.Queue.addAfter(object, result.RequeueAfter)
-				metrics.IncReconcileTotal(ctx, cl.name, labelRequeueAfter, 1)
+				cl.metrics.reconcileTotal.IncLabeled(labelRequeueAfter)
 			case result.Requeue:
 				cl.Queue.add(object)
-				metrics.IncReconcileTotal(ctx, cl.name, labelRequeue, 1)
+				cl.metrics.reconcileTotal.IncLabeled(labelRequeue)
 
 			default:
 				if object.GetDeletionTimestamp() != "" {
@@ -131,7 +131,7 @@ func (cl *ControlLoop[T]) Run() {
 				} else {
 					cl.Queue.finalize(object.GetName())
 				}
-				metrics.IncReconcileTotal(ctx, cl.name, labelSuccess, 1)
+				cl.metrics.reconcileTotal.IncLabeled(labelSuccess)
 			}
 
 			cl.Queue.done(object)
@@ -152,6 +152,7 @@ func (cl *ControlLoop[T]) Run() {
 	for range cl.concurrency {
 		go f(wg)
 	}
+	cl.metrics.workerCount.Set(float64(cl.concurrency))
 }
 
 func (cl *ControlLoop[T]) Stop() {
@@ -162,12 +163,11 @@ func (cl *ControlLoop[T]) Stop() {
 func (cl *ControlLoop[T]) reconcile(ctx context.Context, r Reconcile[T], object T) (result Result, reterr error) {
 	reconcileStartTS := time.Now()
 	defer func() {
-		duration := time.Since(reconcileStartTS)
-		metrics.ObserveReconcileTime(context.Background(), cl.name, duration.Seconds())
+		cl.metrics.reconcileTime.Observe(cl.metrics.sinceInSeconds(reconcileStartTS))
 	}()
 	defer func() {
 		if r := recover(); r != nil {
-			metrics.IncReconcilePanics(ctx, cl.name, 1)
+			cl.metrics.reconcilePanics.Inc()
 			err := fmt.Errorf("recovered from panic: %v", r)
 			cl.l.Error(err)
 			reterr = err
@@ -182,15 +182,3 @@ const (
 	labelRequeue      = "requeue"
 	labelSuccess      = "success"
 )
-
-func (cl *ControlLoop[T]) initMetrics(ctx context.Context) {
-	metrics.IncReconcileTotal(ctx, cl.name, labelError, 0)
-	metrics.IncReconcileTotal(ctx, cl.name, labelRequeueAfter, 0)
-	metrics.IncReconcileTotal(ctx, cl.name, labelRequeue, 0)
-	metrics.IncReconcileTotal(ctx, cl.name, labelSuccess, 0)
-	metrics.IncReconcileErrors(ctx, cl.name, 0)
-	metrics.IncReconcilePanics(ctx, cl.name, 0)
-
-	metrics.SetWorkerCount(cl.name, int64(cl.concurrency))
-	metrics.AddActiveWorkers(ctx, cl.name, 0)
-}

@@ -17,7 +17,7 @@ func NewMemoryStorage[T resource.Object[T]](opts ...StorageOption) *MemoryStorag
 	if currentsOptions.rateLimits != nil {
 		rateLimiter = workqueue.NewTypedItemExponentialFailureRateLimiter[resource.ObjectKey](currentsOptions.rateLimits.Min, currentsOptions.rateLimits.Max)
 	}
-	q := NewQueue[T](rateLimiter)
+	q := NewQueue[T](rateLimiter, currentsOptions.metricsProvider)
 	return &MemoryStorage[T]{
 		m:       &sync.RWMutex{},
 		Queue:   q,
@@ -164,7 +164,8 @@ func (m MemoryStorageWrapped[T]) GetMemoryStorage() *MemoryStorage[T] {
 }
 
 type storageOpts struct {
-	rateLimits *storageRateLimits
+	rateLimits      *storageRateLimits
+	metricsProvider workqueue.MetricsProvider
 }
 
 type storageRateLimits struct {
@@ -180,5 +181,11 @@ func WithCustomRateLimits(min, max time.Duration) StorageOption {
 			Min: min,
 			Max: max,
 		}
+	}
+}
+
+func WithMetricsWorkqueueProvider(mp workqueue.MetricsProvider) StorageOption {
+	return func(o *storageOpts) {
+		o.metricsProvider = mp
 	}
 }

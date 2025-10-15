@@ -6,7 +6,6 @@ import (
 
 	"github.com/reconcile-kit/api/resource"
 	"github.com/reconcile-kit/controlloop/assertions"
-	"github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -16,13 +15,13 @@ type Queue[T resource.Object[T]] struct {
 	m            *sync.RWMutex
 }
 
-func NewQueue[T resource.Object[T]](rateLimiter workqueue.TypedRateLimiter[resource.ObjectKey]) *Queue[T] {
+func NewQueue[T resource.Object[T]](rateLimiter workqueue.TypedRateLimiter[resource.ObjectKey], mp workqueue.MetricsProvider) *Queue[T] {
 	t := assertions.TypeOf[T]()
 	rateLimitingConfig := workqueue.TypedRateLimitingQueueConfig[resource.ObjectKey]{}
 	rateLimitingConfig.DelayingQueue = workqueue.NewTypedDelayingQueueWithConfig[resource.ObjectKey](
 		workqueue.TypedDelayingQueueConfig[resource.ObjectKey]{
 			Name:            t.Name(),
-			MetricsProvider: metrics.WorkqueueMetricsProvider{},
+			MetricsProvider: mp,
 		})
 	queue := workqueue.NewTypedRateLimitingQueueWithConfig[resource.ObjectKey](rateLimiter, rateLimitingConfig)
 	return &Queue[T]{queue: queue, existedItems: make(map[resource.ObjectKey]resource.Object[T]), m: &sync.RWMutex{}}

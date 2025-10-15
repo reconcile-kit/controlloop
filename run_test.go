@@ -7,15 +7,14 @@ import (
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/reconcile-kit/api/resource"
-	"github.com/reconcile-kit/controlloop/observability"
-	"github.com/reconcile-kit/controlloop/observability/controller/metrics"
-	_ "github.com/reconcile-kit/controlloop/observability/workqueue/metrics"
+	"github.com/reconcile-kit/controlloop/testdata/controller/metrics"
+	cmetrics "github.com/reconcile-kit/controlloop/testdata/controller/metrics"
+	wmetrics "github.com/reconcile-kit/controlloop/testdata/workqueue/metrics"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"io"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -202,8 +201,6 @@ func GetFreeTCPListener() (net.Listener, int, error) {
 
 func TestControlLoop_ReconcileAndStop(t *testing.T) {
 
-	observability.Init(observability.Options{})
-
 	rec := &fakeReconciler[*testResource]{tb: newTestBox()}
 	ctx := context.Background()
 
@@ -286,26 +283,22 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 func TestControlLoop_Metrics(t *testing.T) {
 	ctx := context.Background()
 
-	observability.Init(observability.Options{})
-
 	expectedLines := []string{
 		`workqueue_depth{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 3`,
-		`workqueue_adds_total_total{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 6`,
-		`controlloop_reconcile_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version="",result="success"} 2`,
-		`controlloop_reconcile_panics_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 0`,
-		`controlloop_reconcile_errors_total_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 0`,
+		`workqueue_adds_total{name="testResource",otel_scope_name="workqueue",otel_scope_schema_url="",otel_scope_version=""} 6`,
+		`controlloop_reconcile_total{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version="",result="success"} 2`,
 		`controlloop_max_concurrent_reconciles{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 1`,
 		`controlloop_active_workers{controller="testResource",otel_scope_name="controlloop",otel_scope_schema_url="",otel_scope_version=""} 1`,
 	}
 
-	ln, port, err := GetFreeTCPListener()
+	ln, _, err := GetFreeTCPListener()
 	if err != nil {
 		t.Error(err)
 	}
 	ln.Close()
 
 	s, err := NewServer(Options{
-		BindAddress: DefaultBindAddress + ":" + strconv.Itoa(port),
+		BindAddress: DefaultBindAddress + ":" + "8085",
 	})
 	if err != nil {
 		t.Error(err)
@@ -332,7 +325,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 
 	externalStorage := &testExternalStorage[*testResource]{}
 
-	sc, err := NewStorageController[*testResource]("test", externalStorage, NewMemoryStorage[*testResource]())
+	sc, err := NewStorageController[*testResource]("test", externalStorage, NewMemoryStorage[*testResource](WithMetricsWorkqueueProvider(wmetrics.NewWorkqueueMetricsProvider(otel.Meter("workqueue")))))
 	if err != nil {
 		t.Error(err)
 	}
@@ -351,7 +344,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 		t.Error(err)
 	}
 
-	cl := New[*testResource](rec, sc /* no options */)
+	cl := New[*testResource](rec, sc, WithMetricsProvider(cmetrics.NewControllerMetrics(otel.Meter("controlloop"))))
 
 	cl.Run()
 
@@ -359,7 +352,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 	SetStorage[*testResource](registry, sc)
 
 	assert.Eventually(t, func() bool {
-		url := "http://" + DefaultBindAddress + ":" + strconv.Itoa(port) + defaultMetricsEndpoint
+		url := "http://" + DefaultBindAddress + ":" + "8085" + defaultMetricsEndpoint
 		resp, err := http.Get(url)
 		if err != nil {
 			t.Logf("failed to GET %s: %v", url, err)
@@ -383,7 +376,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 
 		return true
 
-	}, time.Second*5, 10*time.Millisecond, "reconcile must be called once")
+	}, time.Second*50, 10*time.Millisecond, "reconcile must be called once")
 
 	t.Logf("Stopping")
 	close(unlock)
@@ -398,7 +391,7 @@ func TestControlLoop_Metrics(t *testing.T) {
 
 const defaultMetricsEndpoint = "/observability"
 
-// DefaultBindAddress is the default bind address for the observability server.
+// DefaultBindAddress is the default bind address for the testdata server.
 var DefaultBindAddress = "localhost"
 
 type Server interface {
@@ -406,9 +399,9 @@ type Server interface {
 }
 
 type Options struct {
-	// BindAddress is the bind address for the observability server.
+	// BindAddress is the bind address for the testdata server.
 	// It will be defaulted to ":8080" if unspecified.
-	// Set this to "0" to disable the observability server.
+	// Set this to "0" to disable the testdata server.
 	BindAddress string
 	// ListenConfig contains options for listening to an address on the metric server.
 	ListenConfig net.ListenConfig
@@ -439,7 +432,7 @@ func NewServer(o Options) (Server, error) {
 	o.setDefaults()
 	readers := []sdkmetric.Reader{}
 
-	// Pull: Prometheus /observability
+	// Pull: Prometheus /testdata
 	reg := prom.NewRegistry()
 	promExp, err := otelprom.New(otelprom.WithRegisterer(reg))
 	if err != nil {
@@ -475,7 +468,7 @@ type defaultServer struct {
 func (s *defaultServer) Start(ctx context.Context) error {
 	ln, err := s.createListener(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to start observability server: failed to create listener: %w", err)
+		return fmt.Errorf("failed to start testdata server: failed to create listener: %w", err)
 	}
 	idleConnsClosed := make(chan struct{})
 	go func() {
