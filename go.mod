@@ -4,13 +4,14 @@ go 1.24.2
 
 require (
 	github.com/prometheus/client_golang v1.22.0
-	github.com/reconcile-kit/api v0.0.13
+	github.com/reconcile-kit/api v0.0.16
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/otel v1.37.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.59.1
 	go.opentelemetry.io/otel/metric v1.37.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	k8s.io/client-go v0.33.1
+	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 )
 
 require (
@@ -36,5 +37,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apimachinery v0.33.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 )
