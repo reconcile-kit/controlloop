@@ -124,7 +124,7 @@ func (cl *ControlLoop[T]) Run() {
 				cl.Queue.addAfter(object, result.RequeueAfter)
 				cl.metrics.reconcileTotal.IncLabeled(labelRequeueAfter)
 			case result.Requeue:
-				cl.Queue.add(object)
+
 				cl.metrics.reconcileTotal.IncLabeled(labelRequeue)
 
 			default:
@@ -136,7 +136,6 @@ func (cl *ControlLoop[T]) Run() {
 				cl.metrics.reconcileTotal.IncLabeled(labelSuccess)
 			}
 
-			cl.Queue.done(object)
 			if stopping.Load() && cl.Queue.len() == 0 {
 				cl.Queue.queue.ShutDownWithDrain()
 			}
