@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/reconcile-kit/api/resource"
-	"github.com/reconcile-kit/controlloop/assertions"
-	"k8s.io/utils/clock"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/reconcile-kit/api/resource"
+	"github.com/reconcile-kit/controlloop/assertions"
+	"k8s.io/utils/clock"
 )
+
+// test
 
 const defaultReconcileTime = time.Second * 30
 const errorReconcileTime = time.Second * 5
