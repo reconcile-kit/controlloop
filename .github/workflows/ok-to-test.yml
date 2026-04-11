@@ -1,0 +1,43 @@
+name: ok-to-test
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  allow-fork-tests:
+    if: >
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/ok-to-test' &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add ok-to-test label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/issues/${PR_NUMBER}/labels \
+            -f labels[]=ok-to-test
+
+      - name: Comment confirmation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            -f body='Added `ok-to-test` label. E2E tests are now allowed for this PR.'

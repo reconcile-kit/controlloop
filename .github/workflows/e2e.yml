@@ -1,0 +1,49 @@
+name: E2E
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout e2e-tests
+        uses: actions/checkout@v4
+        with:
+          repository: reconcile-kit/e2e-tests
+          ref: main
+          path: e2e-tests
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: e2e-tests/go.work
+          cache: true
+
+      - name: Run E2E for this PR
+        working-directory: e2e-tests
+        env:
+          CONTROLLOOP_REF: pr/${{ github.event.pull_request.number }}
+        run: |
+          echo "Running e2e with CONTROLLOOP_REF=${CONTROLLOOP_REF}"
+          make e2e
+
+      - name: Explain refs
+        if: always()
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "PR: ${{ github.event.pull_request.number }}"
+          echo "Ref used: pr/${{ github.event.pull_request.number }}"
