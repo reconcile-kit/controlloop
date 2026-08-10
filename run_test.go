@@ -352,7 +352,7 @@ func TestControlLoop_BackoffResetsAfterSuccess(t *testing.T) {
 		return rec.calls.Load() >= 3 && cl.Queue.len() == 0
 	}, time.Second*5, 5*time.Millisecond, "object must be reconciled to success and finalized")
 
-	assert.Equal(t, 0, cl.Queue.numRequeues(objectKey),
+	assert.Equal(t, 0, cl.Queue.queue.NumRequeues(objectKey),
 		"a successful reconcile must reset the backoff counter")
 
 	// Trigger the object again; it now fails on every call.
@@ -363,7 +363,7 @@ func TestControlLoop_BackoffResetsAfterSuccess(t *testing.T) {
 	}, time.Second*5, 5*time.Millisecond, "object must be reconciled again after re-triggering")
 
 	assert.Eventually(t, func() bool {
-		return cl.Queue.numRequeues(objectKey) == 1
+		return cl.Queue.queue.NumRequeues(objectKey) == 1
 	}, time.Second*5, 5*time.Millisecond,
 		"backoff must restart from the first failure instead of continuing from the pre-success count")
 }

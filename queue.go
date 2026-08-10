@@ -75,10 +75,6 @@ func (q *Queue[T]) forget(objectKey resource.ObjectKey) {
 	q.queue.Forget(objectKey)
 }
 
-func (q *Queue[T]) numRequeues(objectKey resource.ObjectKey) int {
-	return q.queue.NumRequeues(objectKey)
-}
-
 func (q *Queue[t]) get() (resource.ObjectKey, bool) {
 	name, shutdown := q.queue.Get()
 	if shutdown {
