@@ -3,6 +3,7 @@ package controlloop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -119,6 +120,35 @@ func (f *fakeReconciler[T]) Reconcile(ctx context.Context, obj *testResource) (R
 	fmt.Println("Current: ", obj.Name)
 
 	return Result{}, nil
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          TEST Backoff Probe Reconciler                     */
+/* -------------------------------------------------------------------------- */
+
+// backoffProbeReconciler fails the first two reconciles, succeeds on the
+// third, then fails again on every reconcile after that. It is used to
+// verify that a successful reconcile resets the queue's exponential backoff
+// counter, so the post-success failures start backing off from scratch
+// instead of continuing to accumulate from the pre-success failures.
+type backoffProbeReconciler struct {
+	calls atomic.Int32
+}
+
+func (r *backoffProbeReconciler) Reconcile(ctx context.Context, obj *testResource) (Result, error) {
+	// StorageController.Init() seeds the queue with externalStorage.ListPending()'s
+	// fixture objects ("testPending", "testPending2"); ignore anything but the
+	// object this test drives so the shared call counter stays deterministic.
+	// Also let a shutdown reconcile (KillTimestamp set by ControlLoop.Stop) succeed
+	// immediately so the queue can drain.
+	if obj.GetName().Name != "backoff-probe" || obj.GetKillTimestamp() != "" {
+		return Result{}, nil
+	}
+	n := r.calls.Add(1)
+	if n == 3 {
+		return Result{}, nil
+	}
+	return Result{}, errors.New("boom")
 }
 
 type incomeMessage struct {
@@ -279,6 +309,63 @@ func TestControlLoop_ReconcileAndStop(t *testing.T) {
 	cl.Stop()
 
 	assert.Equal(t, 0, cl.Queue.len())
+}
+
+func TestControlLoop_BackoffResetsAfterSuccess(t *testing.T) {
+	ctx := context.Background()
+
+	rec := &backoffProbeReconciler{}
+	externalStorage := &testExternalStorage[*testResource]{}
+
+	sc, err := NewStorageController[*testResource]("test", externalStorage,
+		// Base delay wide enough that the post-reset backoff (checked below)
+		// holds still at NumRequeues==1 for a while before the next retry
+		// fires, instead of racing the assertion past it within a few ms.
+		NewMemoryStorage[*testResource](WithCustomRateLimits(150*time.Millisecond, 3*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	informer := &TestInformer{ch: make(chan incomeMessage, 100), shardID: "test"}
+	if err := NewStorageInformer("test", informer, []Receiver{sc}).Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	cl := New[*testResource](rec, sc)
+	cl.Run()
+	defer cl.Stop()
+
+	objectKey := resource.ObjectKey{Namespace: "test", Name: "backoff-probe"}
+	send := func() {
+		informer.ch <- incomeMessage{
+			kind:        resource.GroupKind{Group: "test", Kind: "test"},
+			name:        objectKey,
+			messageType: resource.MessageTypeUpdate,
+		}
+	}
+
+	send()
+
+	// Reconcile fails twice (NumRequeues climbs to 2), then succeeds on the
+	// third call and leaves the queue.
+	assert.Eventually(t, func() bool {
+		return rec.calls.Load() >= 3 && cl.Queue.len() == 0
+	}, time.Second*5, 5*time.Millisecond, "object must be reconciled to success and finalized")
+
+	assert.Equal(t, 0, cl.Queue.numRequeues(objectKey),
+		"a successful reconcile must reset the backoff counter")
+
+	// Trigger the object again; it now fails on every call.
+	send()
+
+	assert.Eventually(t, func() bool {
+		return rec.calls.Load() >= 4
+	}, time.Second*5, 5*time.Millisecond, "object must be reconciled again after re-triggering")
+
+	assert.Eventually(t, func() bool {
+		return cl.Queue.numRequeues(objectKey) == 1
+	}, time.Second*5, 5*time.Millisecond,
+		"backoff must restart from the first failure instead of continuing from the pre-success count")
 }
 
 func TestControlLoop_Metrics(t *testing.T) {
