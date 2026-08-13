@@ -118,13 +118,16 @@ func (cl *ControlLoop[T]) Run() {
 				cl.metrics.reconcileTotal.IncLabeled(labelError)
 				cl.l.Error(err.Error())
 			case result.RequeueAfter > 0:
+				cl.Queue.forget(object.GetName())
 				cl.Queue.addAfter(object, result.RequeueAfter)
 				cl.metrics.reconcileTotal.IncLabeled(labelRequeueAfter)
 			case result.Requeue:
+				cl.Queue.forget(object.GetName())
 				cl.Queue.add(object)
 				cl.metrics.reconcileTotal.IncLabeled(labelRequeue)
 
 			default:
+				cl.Queue.forget(object.GetName())
 				if object.GetDeletionTimestamp() != "" {
 					cl.Storage.Delete(object.GetName())
 				} else {

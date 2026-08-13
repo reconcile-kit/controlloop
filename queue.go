@@ -68,6 +68,13 @@ func (q *Queue[T]) addRateLimited(item resource.Object[T]) {
 	q.queue.AddRateLimited(item.GetName())
 }
 
+// forget resets the rate limiter's failure count for objectKey, so a future
+// error starts backing off from the base delay again instead of continuing
+// to accumulate from failures that already succeeded.
+func (q *Queue[T]) forget(objectKey resource.ObjectKey) {
+	q.queue.Forget(objectKey)
+}
+
 func (q *Queue[t]) get() (resource.ObjectKey, bool) {
 	name, shutdown := q.queue.Get()
 	if shutdown {
