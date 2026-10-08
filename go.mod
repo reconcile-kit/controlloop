@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	github.com/prometheus/client_golang v1.22.0
-	github.com/reconcile-kit/api v0.0.16
+	github.com/reconcile-kit/api v0.0.17
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/otel v1.37.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.59.1
